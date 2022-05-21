@@ -1,8 +1,5 @@
-#[derive(Debug, Clone, Hash, Serialize)]
+#[derive(Debug, Clone, Hash, serde::Serialize)]
 #[serde(tag = "ty")]
-pub enum DownlinkMessage {
-    Log {
-        level: log::Level,
-    },
-    Data(Vec<u8>),
+pub enum Downlink<'a> {
+    Data(&'a [u8]),
 }

@@ -11,15 +11,22 @@ async-broadcast = "0.4"
 async-trait = "0.1"
 async-std = "1.11"
 futures = "0.3"
+tokio-serial = "5.4"
 
 serde = { version = "1.0.136", features = ["derive"] }
+serde_repr = "0.1"
 rmp-serde = "1.0.0"
 
 anyhow = "1.0"
 lazy_static = "1.4"
+cfg-if = "1.0"
+structopt = "0.3"
+failsafe = "1.1"
+either = "1.6"
 
 signal-hook = "0.3"
 
-tracing = { version = "0.1", features = ["log", "log-always"] }
-fern = { version = "0.6", features = ["colored"] }
-log = "0.4"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-unwrap = "0.9"
+tracing-log = "0.1"
