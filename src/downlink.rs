@@ -1,18 +1,27 @@
-use std::path::Path;
-use std::net::Shutdown;
+use std::{
+    net::Shutdown,
+    path::Path,
+};
 
-use async_std::sync;
+use async_std::sync::Arc;
+use futures::AsyncRead;
+use smol::{
+    io::AsyncBufReadExt,
+    net::unix::UnixDatagram,
+};
+use std::time::Duration;
 
-use smol::net::unix::UnixDatagram;
-
-use crate::options::Options;
-use crate::util;
+use crate::{
+    message,
+    options::Options,
+    util,
+};
 
 #[derive(Clone)]
 pub struct DownlinkSockets {
-    pub telemetry:     sync::Arc<UnixDatagram>,
-    pub reliable:      sync::Arc<UnixDatagram>,
-    pub store_forward: sync::Arc<UnixDatagram>,
+    pub telemetry:     Arc<UnixDatagram>,
+    pub reliable:      Arc<UnixDatagram>,
+    pub store_forward: Arc<UnixDatagram>,
 }
 
 impl DownlinkSockets {
@@ -22,9 +31,9 @@ impl DownlinkSockets {
         store_forward: impl AsRef<Path>,
     ) -> anyhow::Result<Self> {
         Ok(Self {
-            telemetry:     sync::Arc::new(util::uds_connect(telemetry)?),
-            reliable:      sync::Arc::new(util::uds_connect(reliable)?),
-            store_forward: sync::Arc::new(util::uds_connect(store_forward)?),
+            telemetry:     Arc::new(util::uds_connect(telemetry)?),
+            reliable:      Arc::new(util::uds_connect(reliable)?),
+            store_forward: Arc::new(util::uds_connect(store_forward)?),
         })
     }
 
@@ -33,7 +42,8 @@ impl DownlinkSockets {
             self.telemetry.send(data),
             self.reliable.send(data),
             self.store_forward.send(data),
-        ).await;
+        )
+        .await;
 
         r1.or(r2).or(r3)?;
         Ok(())
@@ -54,5 +64,62 @@ impl TryFrom<&Options> for DownlinkSockets {
 
     fn try_from(opt: &Options) -> anyhow::Result<Self> {
         Self::try_new(&opt.telemetry_sock, &opt.reliable_sock, &opt.store_and_forward_sock)
+    }
+}
+
+pub async fn downlink(
+    downlink_sockets: DownlinkSockets,
+    serial_read: impl AsyncRead + Unpin,
+    done: smol::channel::Receiver<!>,
+) {
+    let mut buf = vec![0; 4096];
+
+    let mut serial_read = smol::io::BufReader::new(serial_read);
+
+    loop {
+        let result: anyhow::Result<_> = try {
+            // todo: framing pending fz spec
+            let count = match util::either(serial_read.read_until(b'\n', &mut buf), done.recv())
+                .await
+            {
+                either::Left(ret) => ret?,
+                either::Right(_) => {
+                    if let Err(e) = downlink_sockets.shutdown(Shutdown::Both) {
+                        tracing::error!(error = ?e, "shutting down downlink sockets after done signal");
+                    }
+
+                    return;
+                },
+            };
+
+            let data: &[u8] = &buf[..count];
+            let framed_message = message::Downlink::Data(data);
+
+            let mut framed_bytes = postcard::to_allocvec_cobs(&framed_message)?;
+
+            let compressed_bytes = {
+                let mut out = vec![];
+
+                lazy_static::lazy_static! {
+                    static ref PARAMS: brotli::enc::BrotliEncoderParams = brotli::enc::BrotliEncoderParams {
+                        quality = 11,
+                        ..Default::default()
+                    };
+                }
+
+                brotli::BrotliCompress(&mut framed_bytes, &mut out, &*PARAMS)?;
+
+                out
+            };
+
+            downlink_sockets.send_all(&compressed_bytes).await?;
+
+            // TODO: what do we actually want the strategy to be here re: where to send what?
+        };
+
+        if let Err(e) = result {
+            tracing::error!(error = ?e, "downlink error, sleeping before retry");
+            smol::Timer::after(Duration::from_millis(20)).await;
+        }
     }
 }

@@ -11,7 +11,11 @@ pub struct Options {
     #[structopt(long = "reliable", required_unless = "disable_unix_sockets", default_value = ".")]
     pub reliable_sock: PathBuf,
 
-    #[structopt(long = "store_and_forward", required_unless = "disable_unix_sockets", default_value = ".")]
+    #[structopt(
+        long = "store_and_forward",
+        required_unless = "disable_unix_sockets",
+        default_value = "."
+    )]
     pub store_and_forward_sock: PathBuf,
 
     #[structopt(long)]
