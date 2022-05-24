@@ -1,9 +1,10 @@
-use crate::UnixDatagram;
 use std::{
     future::Future,
     path::Path,
     thread,
 };
+
+use smol::net::unix::UnixDatagram;
 
 pub fn signals() -> anyhow::Result<smol::channel::Receiver<!>> {
     let (tx, rx) = smol::channel::unbounded();

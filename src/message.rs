@@ -1,4 +1,6 @@
-#[derive(Debug, Clone, Hash, serde::Serialize)]
+use std::collections::HashMap;
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "t")]
 pub enum Downlink<'a> {
     Data(&'a [u8]),

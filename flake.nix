@@ -32,7 +32,7 @@
             rust = (super.rustChannelOf {
               channel = "nightly";
               date = "2022-03-29";
-              sha256 = "AZfGR8uISsWd7SA6/5MIN+28fPGSNTi5ROjZFFxh8WY=";
+              sha256 = "Ht5GU1xscXyhtc1zH/ppb2zJ259UXOvflcnfGdi9Adw=";
             }).rust.override {
               extensions = ["rust-src"];
             };

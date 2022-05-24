@@ -7,7 +7,10 @@ use std::{
 };
 
 use async_std::sync::Arc;
-use smol::net::unix::UnixDatagram;
+use smol::{
+    net::unix::UnixDatagram,
+    stream::Stream,
+};
 use tracing::{
     info_span,
     span::Record,
@@ -28,7 +31,7 @@ use tracing_subscriber::{
 
 pub fn init(
     downlink: Option<&crate::downlink::DownlinkSockets>,
-) -> anyhow::Result<impl Stream<Item = crate::message::Downlink>> {
+) -> anyhow::Result<impl Stream<Item = lunarrelay::message::Downlink>> {
     let stderr_layer = tracing_subscriber::fmt::layer()
         .with_writer(std::io::stderr)
         .with_span_events(FmtSpan::CLOSE);

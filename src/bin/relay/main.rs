@@ -1,24 +1,21 @@
-#![cfg(unix)]
-#![feature(never_type)]
 #![feature(try_blocks)]
-#![feature(const_option_ext)]
+#![feature(never_type)]
 
 use anyhow::Result;
+use lunarrelay::build;
 use smol::net::unix::UnixDatagram;
 use structopt::StructOpt as _;
 
-use crate::{
-    downlink::DownlinkSockets,
-    options::Options,
-};
+use crate::downlink::DownlinkSockets;
+use lunarrelay::util;
 
-mod build;
-mod downlink;
-mod message;
+pub use crate::options::Options;
+
+pub mod downlink;
+pub mod trace;
+pub mod uplink;
+
 mod options;
-mod trace;
-mod uplink;
-mod util;
 
 fn main() -> Result<()> {
     eprintln!(

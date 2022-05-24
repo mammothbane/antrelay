@@ -1,6 +1,7 @@
 use std::{
     net::Shutdown,
     path::Path,
+    time::Duration,
 };
 
 use async_std::sync::Arc;
@@ -9,11 +10,10 @@ use smol::{
     io::AsyncBufReadExt,
     net::unix::UnixDatagram,
 };
-use std::time::Duration;
 
-use crate::{
+use crate::options::Options;
+use lunarrelay::{
     message,
-    options::Options,
     util,
 };
 
@@ -102,12 +102,12 @@ pub async fn downlink(
 
                 lazy_static::lazy_static! {
                     static ref PARAMS: brotli::enc::BrotliEncoderParams = brotli::enc::BrotliEncoderParams {
-                        quality = 11,
+                        quality: 11,
                         ..Default::default()
                     };
                 }
 
-                brotli::BrotliCompress(&mut framed_bytes, &mut out, &*PARAMS)?;
+                brotli::BrotliCompress(&mut &framed_bytes[..], &mut out, &*PARAMS)?;
 
                 out
             };

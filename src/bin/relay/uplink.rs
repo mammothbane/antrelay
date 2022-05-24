@@ -9,7 +9,7 @@ use smol::{
     net::unix::UnixDatagram,
 };
 
-use crate::util;
+use lunarrelay::util;
 
 pub async fn uplink(
     uplink_socket: UnixDatagram,
