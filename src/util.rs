@@ -6,7 +6,7 @@ use std::{
 
 use smol::net::unix::UnixDatagram;
 
-pub fn signals() -> anyhow::Result<smol::channel::Receiver<!>> {
+pub fn signals() -> eyre::Result<smol::channel::Receiver<!>> {
     let (tx, rx) = smol::channel::unbounded();
 
     thread::spawn(move || {
@@ -34,7 +34,7 @@ pub async fn either<T, U>(
         .await
 }
 
-pub fn uds_connect(p: impl AsRef<Path>) -> anyhow::Result<UnixDatagram> {
+pub fn uds_connect(p: impl AsRef<Path>) -> eyre::Result<UnixDatagram> {
     let sock = UnixDatagram::unbound()?;
     sock.connect(p.as_ref())?;
 

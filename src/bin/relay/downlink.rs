@@ -29,7 +29,7 @@ impl DownlinkSockets {
         telemetry: impl AsRef<Path>,
         reliable: impl AsRef<Path>,
         store_forward: impl AsRef<Path>,
-    ) -> anyhow::Result<Self> {
+    ) -> eyre::Result<Self> {
         Ok(Self {
             telemetry:     Arc::new(util::uds_connect(telemetry)?),
             reliable:      Arc::new(util::uds_connect(reliable)?),
@@ -37,7 +37,7 @@ impl DownlinkSockets {
         })
     }
 
-    pub async fn send_all(&self, data: &[u8]) -> anyhow::Result<()> {
+    pub async fn send_all(&self, data: &[u8]) -> eyre::Result<()> {
         let (r1, r2, r3) = futures::future::join3(
             self.telemetry.send(data),
             self.reliable.send(data),
@@ -49,7 +49,7 @@ impl DownlinkSockets {
         Ok(())
     }
 
-    pub fn shutdown(&self, how: Shutdown) -> anyhow::Result<()> {
+    pub fn shutdown(&self, how: Shutdown) -> eyre::Result<()> {
         let r1 = self.telemetry.shutdown(how);
         let r2 = self.reliable.shutdown(how);
         let r3 = self.store_forward.shutdown(how);
@@ -60,9 +60,9 @@ impl DownlinkSockets {
 }
 
 impl TryFrom<&Options> for DownlinkSockets {
-    type Error = anyhow::Error;
+    type Error = eyre::Error;
 
-    fn try_from(opt: &Options) -> anyhow::Result<Self> {
+    fn try_from(opt: &Options) -> eyre::Result<Self> {
         Self::try_new(&opt.telemetry_sock, &opt.reliable_sock, &opt.store_and_forward_sock)
     }
 }
@@ -77,7 +77,7 @@ pub async fn downlink(
     let mut serial_read = smol::io::BufReader::new(serial_read);
 
     loop {
-        let result: anyhow::Result<_> = try {
+        let result: eyre::Result<_> = try {
             // todo: framing pending fz spec
             let count = match util::either(serial_read.read_until(b'\n', &mut buf), done.recv())
                 .await

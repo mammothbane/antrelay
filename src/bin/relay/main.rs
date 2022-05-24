@@ -1,7 +1,7 @@
 #![feature(try_blocks)]
 #![feature(never_type)]
 
-use anyhow::Result;
+use eyre::Result;
 use lunarrelay::build;
 use smol::net::unix::UnixDatagram;
 use structopt::StructOpt as _;

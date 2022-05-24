@@ -19,7 +19,7 @@ pub async fn uplink(
     let mut buf = vec![0; 4096];
 
     loop {
-        let result: anyhow::Result<_> = try {
+        let result: eyre::Result<_> = try {
             let count = match util::either(uplink_socket.recv(&mut buf), done.recv()).await {
                 either::Left(ret) => ret?,
                 either::Right(_) => {
