@@ -6,6 +6,7 @@ use std::{
 
 use async_std::sync::Arc;
 use futures::AsyncRead;
+use packed_struct::PackedStructSlice;
 use smol::{
     io::AsyncBufReadExt,
     net::unix::UnixDatagram,
@@ -117,8 +118,14 @@ async fn downlink_once(
     let (data, rest) = postcard::take_from_bytes_cobs::<Vec<u8>>(&mut buf[..count])?;
     debug_assert_eq!(rest.len(), 0);
 
-    let framed_message = message::Downlink::Data(&data);
-    let mut framed_bytes = postcard::to_allocvec(&framed_message)?;
+    let message = message::Message {
+        header:  todo!(),
+        payload: message::Payload::new(data),
+    };
+
+    let packed_message = message.pack_to_vec()?;
+
+    let mut framed_bytes = postcard::to_allocvec(&packed_message)?;
 
     let compressed_bytes = {
         let mut out = vec![];

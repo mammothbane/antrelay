@@ -31,7 +31,7 @@ use tracing_subscriber::{
 
 pub fn init(
     downlink: Option<&crate::downlink::DownlinkSockets>,
-) -> eyre::Result<impl Stream<Item = lunarrelay::message::Downlink>> {
+) -> eyre::Result<impl Stream<Item = lunarrelay::message::Message>> {
     let stderr_layer = tracing_subscriber::fmt::layer()
         .with_writer(std::io::stderr)
         .with_span_events(FmtSpan::CLOSE);
