@@ -96,6 +96,14 @@
         name = "relay";
         tag = "latest";
 
+        fromImage = pkgs.dockerTools.pullImage {
+          imageName = "gcr.io/distroless/static";
+          imageDigest = "sha256:d6fa9db9548b5772860fecddb11d84f9ebd7e0321c0cb3c02870402680cc315f";
+          sha256 = "1f2rfkppk4y1szi8f7yhyikqffxv6fscf5kp6yz1f1c42scfibpi";
+          finalImageName = "gcr.io/distroless/static";
+          finalImageTag = "latest";
+        };
+
         contents = pkgs.stdenv.mkDerivation {
           name = "relay-root-upx";
           phases = [ "buildPhase" "installPhase" ];
