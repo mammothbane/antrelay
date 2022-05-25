@@ -1,6 +1,9 @@
 #![feature(never_type)]
 #![feature(try_blocks)]
 #![feature(const_option_ext)]
+#![feature(adt_const_params)]
+#![feature(option_result_contains)]
+#![feature(inherent_associated_types)]
 
 pub mod build;
 pub mod message;

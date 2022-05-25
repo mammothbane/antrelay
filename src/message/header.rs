@@ -1,5 +1,7 @@
 use packed_struct::prelude::*;
 
+use crate::message::MagicValue;
+
 lazy_static::lazy_static! {
     pub static ref SIZE_BYTES: usize = {
         use packed_struct::PackedStructInfo;
@@ -11,20 +13,19 @@ lazy_static::lazy_static! {
     };
 }
 
+pub type Magic = MagicValue<0xeb>;
+
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PackedStruct)]
 #[packed_struct(bit_numbering = "msb0", size_bytes = "8", endian = "lsb")]
 pub struct Header {
-    pub magic:       u8,
+    #[packed_field(size_bytes = "1")]
+    pub magic:       Magic,
     #[packed_field(size_bytes = "1", ty = "enum")]
     pub destination: Destination,
     pub _timestamp:  u32,
     pub seq:         u8,
     #[packed_field(size_bytes = "1")]
     pub ty:          Type,
-}
-
-impl Header {
-    pub const MAGIC: u8 = 0xeb;
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PrimitiveEnum_u8)]
@@ -70,7 +71,10 @@ pub enum Kind {
 
 #[cfg(test)]
 mod test {
-    use proptest::prelude::*;
+    use proptest::{
+        prelude::*,
+        string::bytes_regex,
+    };
 
     use super::*;
 
@@ -78,22 +82,32 @@ mod test {
         #[test]
         fn pack_unpack_equivalence(header in header_strategy()) {
             let packed = header.pack();
-
             assert!(packed.is_ok());
             let packed = packed.unwrap();
 
-            let unpacked = Header::unpack(packed);
+            let unpacked = Header::unpack(&packed);
             assert!(unpacked.is_ok());
             let unpacked = unpacked.unwrap();
 
             assert_eq!(header, unpacked);
         }
+
+        #[test]
+        fn unpack_pack_equivalence(data in any::<[u8; 8]>()) {
+            match Header::unpack(&data) {
+                Ok(hdr) => {
+                    let packed = hdr.pack();
+                    assert_eq!(Ok(data), hdr.pack());
+                },
+                Err(e) => {},
+            }
+        }
     }
 
     prop_compose! {
-        fn header_strategy()(ty in type_strategy(), seq in any::<u8>(), _timestamp in any::<u32>(), destination in dest_strategy()) -> impl Strategy<Value = Header> {
+        fn header_strategy()(ty in type_strategy(), seq in any::<u8>(), _timestamp in any::<u32>(), destination in dest_strategy()) -> Header {
             Header {
-                magic: Header::MAGIC,
+                magic: Magic::INSTANCE,
                 destination,
                 _timestamp,
                 seq,
@@ -103,7 +117,7 @@ mod test {
     }
 
     prop_compose! {
-        fn type_strategy()(ack in any::<bool>(), target in target_strategy(), kind in kind_strategy()) -> impl Strategy<Value = Type> {
+        fn type_strategy()(ack in any::<bool>(), target in target_strategy(), kind in kind_strategy()) -> Type {
             Type {
                 ack,
                 target,

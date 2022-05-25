@@ -7,6 +7,7 @@ use packed_struct::{
 };
 
 mod header;
+mod magic_value;
 mod payload;
 
 pub use header::{
@@ -16,6 +17,7 @@ pub use header::{
     Target,
     Type,
 };
+pub use magic_value::MagicValue;
 pub use payload::Payload;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
