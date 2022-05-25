@@ -22,13 +22,14 @@ brotli = "3.3"
 postcard = { version = "0.7", features = ["alloc", "use-std"] }
 
 eyre = "0.6"
+failsafe = "1.1"
 lazy_static = "1.4"
 cfg-if = "1.0"
 structopt = "0.3"
-failsafe = "1.1"
 either = "1.6"
 fnv = "1.0"
-
+chrono = "0.4"
+libloading = "0.7"
 signal-hook = "0.3"
 
 tracing = "0.1"
@@ -44,3 +45,4 @@ anyhow = "1.0"
 opt-level = "s"
 lto = true
 codegen-units = 1
+strip = true

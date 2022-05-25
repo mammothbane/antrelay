@@ -1,5 +1,9 @@
 #![feature(try_blocks)]
 #![feature(never_type)]
+#![feature(proc_macro_hygiene)]
+#![feature(stmt_expr_attributes)]
+
+use std::path::Path;
 
 use eyre::Result;
 use lunarrelay::build;
@@ -18,18 +22,19 @@ pub mod uplink;
 mod options;
 
 fn main() -> Result<()> {
-    eprintln!(
-        "[bootstrap] starting {} {} ({}, built at {} with rustc {})",
+    util::bootstrap!(
+        "starting {} {} ({}, built at {} with rustc {})",
         build::PACKAGE,
         build::VERSION,
         build::COMMIT_HASH,
         build::BUILD_TIMESTAMP,
-        build::RUSTC_COMMIT_HASH
+        build::RUSTC_COMMIT_HASH,
     );
 
     let options: Options = Options::from_args();
+    smol::block_on(apply_patches(&options.lib_dir));
 
-    eprintln!("[bootstrap] binding downlink sockets");
+    util::bootstrap!("binding downlink sockets");
     let downlink_sockets = tracing::info_span!("binding downlink sockets")
         .in_scope(|| {
             (!options.disable_unix_sockets).then(|| {
@@ -38,7 +43,7 @@ fn main() -> Result<()> {
             })
         })
         .transpose()?;
-    eprintln!("[bootstrap] downlink sockets bound");
+    util::bootstrap!("downlink sockets bound");
 
     trace::init(downlink_sockets.as_ref())?;
     tracing::info!(
@@ -50,10 +55,8 @@ fn main() -> Result<()> {
         "tracing subsystem initialized"
     );
 
-    let uplink_socket = tracing::info_span!("binding uplink sockets")
-        .in_scope(|| {
-            (!options.disable_unix_sockets).then(|| util::uds_connect(options.uplink_sock))
-        })
+    let uplink_socket = (!options.disable_unix_sockets)
+        .then(|| util::uds_connect(options.uplink_sock))
         .transpose()?;
 
     let serial = tracing::info_span!("opening serial port").in_scope(
@@ -113,4 +116,47 @@ fn main() -> Result<()> {
     });
 
     Ok(())
+}
+
+#[tracing::instrument(fields(path = %dir.as_ref().display()), skip(dir))]
+async fn apply_patches(dir: impl AsRef<Path>) {
+    use smol::stream::StreamExt;
+    use std::os::unix::ffi::OsStrExt as _;
+
+    util::bootstrap!("loading libraries from {}", dir.as_ref().display());
+    let dir = match smol::fs::read_dir(dir).await {
+        Err(e) => {
+            util::bootstrap!("unable to read directory");
+            return;
+        },
+        Ok(x) => x,
+    };
+
+    let paths = {
+        let mut paths = dir
+            .filter_map(|ent| {
+                if let Err(ref e) = ent {
+                    util::bootstrap!("reading dir entry: {}", e);
+                }
+
+                ent.ok()
+            })
+            .map(|ent| ent.file_name())
+            .filter(|name| name.as_bytes().ends_with(b".so"))
+            .collect::<Vec<_>>()
+            .await;
+
+        paths.sort();
+
+        paths
+    };
+
+    paths.into_iter().for_each(|path| {
+        util::bootstrap!("loading dynamic library: {:?}", path);
+
+        match unsafe { libloading::Library::new(path) } {
+            Ok(_) => util::bootstrap!("loaded ok"),
+            Err(e) => util::bootstrap!("failed loading: {}", e),
+        }
+    });
 }

@@ -35,6 +35,9 @@
               sha256 = "Ht5GU1xscXyhtc1zH/ppb2zJ259UXOvflcnfGdi9Adw=";
             }).rust.override {
               extensions = ["rust-src"];
+              targets = [
+                "x86_64-unknown-linux-musl"
+              ];
             };
           in {
             cargo = rust;
@@ -59,6 +62,8 @@
         pname = "lunarrelay";
         version = self.rev or "dirty";
 
+        target = "x86_64-unknown-linux-musl";
+
         src = lib.cleanSourceWith (with builtins; {
           src = lib.cleanSource ./.;
 
@@ -70,15 +75,46 @@
             result =
               relPath == "Cargo.lock" ||
               relPath == "Cargo.toml" ||
+              relPath == "build.rs" ||
               relPath == "src" ||
               lib.hasPrefix "src/" relPath
               ;
 
           in result;
+
         });
+
+        cargoBuildOptions = super: super ++ [
+          "--target" "x86_64-unknown-linux-musl"
+        ];
 
         buildInputs = deps;
         remapPathPrefix = true;
+      };
+
+      docker = pkgs.dockerTools.buildImage {
+        name = "relay";
+        tag = "latest";
+
+        contents = pkgs.stdenv.mkDerivation {
+          name = "relay-root-upx";
+          phases = [ "buildPhase" "installPhase" ];
+
+          buildPhase = ''
+            ${pkgs.upx}/bin/upx --best --ultra-brute -o relay.upx ${pkg}/bin/relay
+          '';
+
+          installPhase = ''
+            install -d -m 0744 $out
+            install -m 0700 relay.upx $out/relay
+          '';
+        };
+
+        config = {
+          Entrypoint = [ "/relay" ];
+          Cmd = [];
+          WorkingDir = "/";
+        };
       };
 
     in {
@@ -91,6 +127,11 @@
         RUST_SRC_PATH = "${pkgs.naerskRust}/lib/rustlib/src/rust";
 
         RUST_BACKTRACE = "1";
+      };
+
+      packages = {
+        bin = pkg;
+        inherit docker;
       };
 
       defaultPackage = pkg;

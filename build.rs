@@ -3,6 +3,8 @@ use vergen::{
     Config,
 };
 
-fn main() -> anyhow::Result<()> {
-    vergen(Config::default())
+fn main() {
+    vergen(Config::default()).unwrap_or_else(|e| {
+        eprintln!("vergen failed: {}", e);
+    });
 }

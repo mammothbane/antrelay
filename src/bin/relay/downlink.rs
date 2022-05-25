@@ -17,6 +17,8 @@ use lunarrelay::{
     util,
 };
 
+const COBS_SENTINEL: u8 = 0;
+
 #[derive(Clone)]
 pub struct DownlinkSockets {
     pub telemetry:     Arc<UnixDatagram>,
@@ -67,59 +69,73 @@ impl TryFrom<&Options> for DownlinkSockets {
     }
 }
 
+#[derive(Copy, Clone, Debug)]
+enum DownlinkStatus {
+    Continue,
+    Close,
+}
+
+#[tracing::instrument(skip_all)]
 pub async fn downlink(
     downlink_sockets: DownlinkSockets,
     serial_read: impl AsyncRead + Unpin,
     done: smol::channel::Receiver<!>,
 ) {
     let mut buf = vec![0; 4096];
-
     let mut serial_read = smol::io::BufReader::new(serial_read);
 
     loop {
-        let result: eyre::Result<_> = try {
-            // todo: framing pending fz spec
-            let count = match util::either(serial_read.read_until(b'\n', &mut buf), done.recv())
-                .await
-            {
-                either::Left(ret) => ret?,
-                either::Right(_) => {
-                    if let Err(e) = downlink_sockets.shutdown(Shutdown::Both) {
-                        tracing::error!(error = ?e, "shutting down downlink sockets after done signal");
-                    }
-
-                    return;
-                },
-            };
-
-            let data: &[u8] = &buf[..count];
-            let framed_message = message::Downlink::Data(data);
-
-            let mut framed_bytes = postcard::to_allocvec_cobs(&framed_message)?;
-
-            let compressed_bytes = {
-                let mut out = vec![];
-
-                lazy_static::lazy_static! {
-                    static ref PARAMS: brotli::enc::BrotliEncoderParams = brotli::enc::BrotliEncoderParams {
-                        quality: 11,
-                        ..Default::default()
-                    };
-                }
-
-                brotli::BrotliCompress(&mut &framed_bytes[..], &mut out, &*PARAMS)?;
-
-                out
-            };
-
-            downlink_sockets.send_all(&compressed_bytes).await?;
-
-            // TODO: what do we actually want the strategy to be here re: where to send what?
-        };
-
-        if let Err(e) = result {
-            tracing::error!(error = ?e, "downlink error, sleeping before retry");
-            smol::Timer::after(Duration::from_millis(20)).await;
+        match downlink_once(&downlink_sockets, &mut serial_read, &mut buf, &done).await {
+            Ok(DownlinkStatus::Continue) => {},
+            Ok(DownlinkStatus::Close) => break,
+            Err(e) => {
+                tracing::error!(error = ?e, "downlink error, sleeping before retry");
+                smol::Timer::after(Duration::from_millis(20)).await;
+            },
         }
     }
+}
+
+async fn downlink_once(
+    downlink_sockets: &DownlinkSockets,
+    serial_read: &mut (impl AsyncBufReadExt + Unpin),
+    buf: &mut Vec<u8>,
+    done: &smol::channel::Receiver<!>,
+) -> eyre::Result<DownlinkStatus> {
+    // todo: framing pending fz spec
+    let count = match util::either(serial_read.read_until(COBS_SENTINEL, buf), done.recv()).await {
+        either::Left(ret) => ret?,
+        either::Right(_) => {
+            if let Err(e) = downlink_sockets.shutdown(Shutdown::Both) {
+                tracing::error!(error = ?e, "shutting down downlink sockets after done signal");
+            }
+
+            return Ok(DownlinkStatus::Close);
+        },
+    };
+
+    let (data, rest) = postcard::take_from_bytes_cobs::<Vec<u8>>(&mut buf[..count])?;
+    debug_assert_eq!(rest.len(), 0);
+
+    let framed_message = message::Downlink::Data(&data);
+    let mut framed_bytes = postcard::to_allocvec(&framed_message)?;
+
+    let compressed_bytes = {
+        let mut out = vec![];
+
+        lazy_static::lazy_static! {
+            static ref PARAMS: brotli::enc::BrotliEncoderParams = brotli::enc::BrotliEncoderParams {
+                quality: 11,
+                ..Default::default()
+            };
+        }
+
+        brotli::BrotliCompress(&mut &framed_bytes[..], &mut out, &*PARAMS)?;
+
+        out
+    };
+
+    downlink_sockets.send_all(&compressed_bytes).await?;
+
+    Ok(DownlinkStatus::Continue)
 }

@@ -26,4 +26,7 @@ pub struct Options {
 
     #[structopt(short, long, default_value = "115200")]
     pub baud: u32,
+
+    #[structopt(long, default_value = "./libs")]
+    pub lib_dir: PathBuf,
 }

@@ -80,9 +80,9 @@ fn mk_level_filter() -> EnvFilter {
         let default_str = {
             cfg_if::cfg_if! {
                 if #[cfg(not(debug_assertions))] {
-                    "warn,lunarrelay=info"
+                    "warn,relay=info"
                 } else {
-                    "info,lunarrelay=debug"
+                    "info,relay=debug"
                 }
             }
         };
