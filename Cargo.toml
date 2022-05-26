@@ -25,15 +25,17 @@ crc = "3.0"
 
 eyre = "0.6"
 failsafe = "1.1"
+thiserror = "1.0"
+either = "1.6"
+
 lazy_static = "1.4"
 cfg-if = "1.0"
+derive_more = "0.99"
 structopt = "0.3"
-either = "1.6"
 fnv = "1.0"
 chrono = "0.4"
 libloading = "0.7"
 signal-hook = "0.3"
-derive_more = "0.99"
 
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }

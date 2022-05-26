@@ -18,6 +18,7 @@ pub mod uplink;
 
 mod dynload;
 mod options;
+mod relay;
 
 fn main() -> Result<()> {
     util::bootstrap!(

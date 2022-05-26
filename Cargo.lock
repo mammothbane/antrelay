@@ -978,6 +978,7 @@ dependencies = [
  "signal-hook",
  "smol",
  "structopt",
+ "thiserror",
  "tokio-serial",
  "tracing",
  "tracing-log",
