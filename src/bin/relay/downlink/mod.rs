@@ -1,73 +1,28 @@
 use std::{
     net::Shutdown,
-    path::Path,
+    sync::atomic::{
+        AtomicU8,
+        Ordering,
+    },
     time::Duration,
 };
 
-use async_std::sync::Arc;
 use futures::AsyncRead;
 use packed_struct::PackedStructSlice;
-use smol::{
-    io::AsyncBufReadExt,
-    net::unix::UnixDatagram,
-};
+use smol::io::AsyncBufReadExt;
 
-use crate::options::Options;
 use lunarrelay::{
     message,
     util,
 };
+pub use sockets::DownlinkSockets;
 
-const COBS_SENTINEL: u8 = 0;
+mod sockets;
 
-#[derive(Clone)]
-pub struct DownlinkSockets {
-    pub telemetry:     Arc<UnixDatagram>,
-    pub reliable:      Arc<UnixDatagram>,
-    pub store_forward: Arc<UnixDatagram>,
-}
+const SENTINEL: u8 = 0;
 
-impl DownlinkSockets {
-    fn try_new(
-        telemetry: impl AsRef<Path>,
-        reliable: impl AsRef<Path>,
-        store_forward: impl AsRef<Path>,
-    ) -> eyre::Result<Self> {
-        Ok(Self {
-            telemetry:     Arc::new(util::uds_connect(telemetry)?),
-            reliable:      Arc::new(util::uds_connect(reliable)?),
-            store_forward: Arc::new(util::uds_connect(store_forward)?),
-        })
-    }
-
-    pub async fn send_all(&self, data: &[u8]) -> eyre::Result<()> {
-        let (r1, r2, r3) = futures::future::join3(
-            self.telemetry.send(data),
-            self.reliable.send(data),
-            self.store_forward.send(data),
-        )
-        .await;
-
-        r1.or(r2).or(r3)?;
-        Ok(())
-    }
-
-    pub fn shutdown(&self, how: Shutdown) -> eyre::Result<()> {
-        let r1 = self.telemetry.shutdown(how);
-        let r2 = self.reliable.shutdown(how);
-        let r3 = self.store_forward.shutdown(how);
-
-        r1.or(r2).or(r3)?;
-        Ok(())
-    }
-}
-
-impl TryFrom<&Options> for DownlinkSockets {
-    type Error = eyre::Error;
-
-    fn try_from(opt: &Options) -> eyre::Result<Self> {
-        Self::try_new(&opt.telemetry_sock, &opt.reliable_sock, &opt.store_and_forward_sock)
-    }
+lazy_static::lazy_static! {
+    static ref SEQUENCE_NUMBER: AtomicU8 = AtomicU8::new(0);
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -104,7 +59,7 @@ async fn downlink_once(
     done: &smol::channel::Receiver<!>,
 ) -> eyre::Result<DownlinkStatus> {
     // todo: framing pending fz spec
-    let count = match util::either(serial_read.read_until(COBS_SENTINEL, buf), done.recv()).await {
+    let count = match util::either(serial_read.read_until(SENTINEL, buf), done.recv()).await {
         either::Left(ret) => ret?,
         either::Right(_) => {
             if let Err(e) = downlink_sockets.shutdown(Shutdown::Both) {
@@ -115,17 +70,32 @@ async fn downlink_once(
         },
     };
 
-    let (data, rest) = postcard::take_from_bytes_cobs::<Vec<u8>>(&mut buf[..count])?;
-    debug_assert_eq!(rest.len(), 0);
+    let data = {
+        cfg_if::cfg_if! {
+            if #[cfg(feature = "serial_cobs")] {
+                let (data, rest) = postcard::take_from_bytes_cobs::<Vec<u8>>(&mut buf[..count])?;
+                debug_assert_eq!(rest.len(), 0);
+
+                data
+            } else {
+                Vec::from(&buf[..count])
+            }
+        }
+    };
 
     let message = message::Message {
-        header:  todo!(),
+        header:  message::Header {
+            magic:       Default::default(),
+            destination: message::Destination::Ground,
+            ty:          message::Type::PONG,
+            _timestamp:  lunarrelay::now(),
+            seq:         SEQUENCE_NUMBER.fetch_add(1, Ordering::SeqCst),
+        },
         payload: message::Payload::new(data),
     };
 
     let packed_message = message.pack_to_vec()?;
-
-    let mut framed_bytes = postcard::to_allocvec(&packed_message)?;
+    let framed_bytes = postcard::to_allocvec(&packed_message)?;
 
     let compressed_bytes = {
         let mut out = vec![];

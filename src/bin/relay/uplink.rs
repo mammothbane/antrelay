@@ -56,8 +56,17 @@ async fn uplink_once(
         },
     };
 
-    let cobs_vec = postcard::to_allocvec_cobs(&buf[..count])?;
-    serial_write.write_all(&cobs_vec).await?;
+    let data = {
+        cfg_if::cfg_if! {
+            if #[cfg(feature = "serial_cobs")] {
+                postcard::to_allocvec_cobs(&buf[..count])?
+            } else {
+                Vec::from(&buf[..count])
+            }
+        }
+    };
+
+    serial_write.write_all(&data).await?;
 
     Ok(UplinkStatus::Continue)
 }

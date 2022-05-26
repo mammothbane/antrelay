@@ -28,6 +28,12 @@ pub struct Header {
     pub ty:          Type,
 }
 
+impl Header {
+    pub fn timestamp(&self) -> chrono::DateTime<chrono::Utc> {
+        crate::from_rel_timestamp(self._timestamp)
+    }
+}
+
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PrimitiveEnum_u8)]
 #[repr(u8)]
 pub enum Destination {
@@ -48,6 +54,14 @@ pub struct Type {
 
     #[packed_field(bits = "4..8", ty = "enum")]
     pub kind: Kind,
+}
+
+impl Type {
+    pub const PONG: Self = Self {
+        ack:    true,
+        target: Target::Frontend,
+        kind:   Kind::Ping,
+    };
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PrimitiveEnum_u8)]

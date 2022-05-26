@@ -9,7 +9,7 @@ use packed_struct::{
     PackingResult,
 };
 
-#[derive(Copy, Clone, Debug, Eq, Ord)]
+#[derive(Copy, Clone, Debug, Eq, Ord, Default)]
 pub struct MagicValue<const C: u8>;
 
 impl<const C: u8> MagicValue<C> {

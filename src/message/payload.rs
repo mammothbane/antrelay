@@ -1,7 +1,13 @@
+use crc::{
+    Crc,
+    CRC_8_SMBUS,
+};
 use packed_struct::{
     prelude::*,
     PackingResult,
 };
+
+const CRC_8: Crc<u8> = Crc::<u8>::new(&CRC_8_SMBUS);
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Payload {
@@ -12,11 +18,9 @@ pub struct Payload {
 impl Payload {
     #[inline]
     pub fn new(data: Vec<u8>) -> Self {
-        let checksum: u8 = todo!();
-
         Self {
-            payload: data,
-            checksum,
+            checksum: CRC_8.checksum(&data),
+            payload:  data,
         }
     }
 

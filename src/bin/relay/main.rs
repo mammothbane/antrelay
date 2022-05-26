@@ -9,7 +9,7 @@ use eyre::Result;
 use lunarrelay::build;
 use structopt::StructOpt as _;
 
-use crate::downlink::DownlinkSockets;
+use downlink::DownlinkSockets;
 use lunarrelay::util;
 
 pub use crate::options::Options;
