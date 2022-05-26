@@ -118,10 +118,19 @@
           '';
         };
 
+        runAsRoot = ''
+          #!${pkgs.runtimeShell}
+          ln -sf /usr/share/zoneinfo/UTC /etc/localtime
+          echo 'UTC' > /etc/timezone
+        '';
+
         config = {
           Entrypoint = [ "/relay" ];
           Cmd = [];
           WorkingDir = "/";
+          Env = [
+            "TZ=\"UTC\""
+          ];
         };
       };
 
