@@ -46,11 +46,6 @@ impl<const C: u8, const D: u8> PartialEq<MagicValue<D>> for MagicValue<C> {
     fn eq(&self, _other: &MagicValue<D>) -> bool {
         C == D
     }
-
-    #[inline]
-    fn ne(&self, _other: &MagicValue<D>) -> bool {
-        C != D
-    }
 }
 
 impl<const C: u8, const D: u8> PartialOrd<MagicValue<D>> for MagicValue<C> {

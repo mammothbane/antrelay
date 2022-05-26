@@ -142,7 +142,10 @@ where
 
     fn on_record(&self, id: &Id, values: &Record<'_>, ctx: Context<'_, S>) {
         let values = visit::fields(values);
-        ctx.span(id).map(move |spanref| spanref.extensions_mut().insert(values));
+
+        if let Some(spanref) = ctx.span(id) {
+            spanref.extensions_mut().insert(values);
+        }
     }
 
     fn on_event(&self, event: &Event<'_>, _ctx: Context<'_, S>) {

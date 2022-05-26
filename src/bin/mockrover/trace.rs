@@ -5,7 +5,7 @@ use tracing_subscriber::{
     fmt::format::FmtSpan,
 };
 
-pub const DEFAULT_LEVEL_STR: &'static str = {
+pub const DEFAULT_LEVEL_STR: &str = {
     cfg_if::cfg_if! {
         if #[cfg(not(debug_assertions))] {
             "warn,mockrover=info"

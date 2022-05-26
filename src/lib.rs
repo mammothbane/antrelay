@@ -10,7 +10,7 @@ pub mod util;
 lazy_static::lazy_static! {
     // TODO
     pub static ref EPOCH: chrono::DateTime<chrono::Utc> = {
-        let ndt = chrono::NaiveDate::from_ymd(2022, 06, 01).and_hms(0, 0, 0);
+        let ndt = chrono::NaiveDate::from_ymd(2022, 6, 1).and_hms(0, 0, 0);
 
         chrono::DateTime::from_utc(ndt, chrono::Utc)
     };
