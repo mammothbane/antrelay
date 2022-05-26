@@ -1,8 +1,5 @@
-use std::collections::HashMap;
-
 use packed_struct::{
     prelude::*,
-    PackedStructInfo,
     PackingResult,
 };
 
@@ -28,8 +25,6 @@ pub struct Message {
 
 impl PackedStructSlice for Message {
     fn pack_to_slice(&self, output: &mut [u8]) -> PackingResult<()> {
-        use packed_struct::PackedStruct;
-
         let (header_bytes, payload_bytes) = output.split_at_mut(*header::SIZE_BYTES);
 
         self.header.pack_to_slice(header_bytes)?;

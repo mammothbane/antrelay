@@ -32,6 +32,7 @@ fnv = "1.0"
 chrono = "0.4"
 libloading = "0.7"
 signal-hook = "0.3"
+derive_more = "0.99"
 
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }

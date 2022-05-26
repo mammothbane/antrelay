@@ -1,11 +1,12 @@
+use std::{
+    cmp::Ordering,
+    hash::Hasher,
+};
+
 use packed_struct::{
     prelude::*,
     PackedStructInfo,
     PackingResult,
-};
-use std::{
-    cmp::Ordering,
-    hash::Hasher,
 };
 
 #[derive(Copy, Clone, Debug, Eq, Ord)]

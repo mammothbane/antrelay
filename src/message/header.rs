@@ -71,10 +71,7 @@ pub enum Kind {
 
 #[cfg(test)]
 mod test {
-    use proptest::{
-        prelude::*,
-        string::bytes_regex,
-    };
+    use proptest::prelude::*;
 
     use super::*;
 
@@ -97,9 +94,9 @@ mod test {
             match Header::unpack(&data) {
                 Ok(hdr) => {
                     let packed = hdr.pack();
-                    assert_eq!(Ok(data), hdr.pack());
+                    assert_eq!(Ok(data), packed);
                 },
-                Err(e) => {},
+                Err(_e) => {},
             }
         }
     }

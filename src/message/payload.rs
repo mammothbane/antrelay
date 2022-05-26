@@ -1,12 +1,5 @@
-use std::fmt::{
-    Error,
-    Formatter,
-};
-
 use packed_struct::{
-    PackedStruct,
-    PackedStructSlice,
-    PackingError,
+    prelude::*,
     PackingResult,
 };
 

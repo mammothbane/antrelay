@@ -7,7 +7,6 @@ use std::path::Path;
 
 use eyre::Result;
 use lunarrelay::build;
-use smol::net::unix::UnixDatagram;
 use structopt::StructOpt as _;
 
 use crate::downlink::DownlinkSockets;
@@ -45,7 +44,8 @@ fn main() -> Result<()> {
         .transpose()?;
     util::bootstrap!("downlink sockets bound");
 
-    trace::init(downlink_sockets.as_ref())?;
+    let _stream = trace::init()?;
+
     tracing::info!(
         application = build::PACKAGE,
         version = build::VERSION,
@@ -126,7 +126,7 @@ async fn apply_patches(dir: impl AsRef<Path>) {
     util::bootstrap!("loading libraries from {}", dir.as_ref().display());
     let dir = match smol::fs::read_dir(dir).await {
         Err(e) => {
-            util::bootstrap!("unable to read directory");
+            util::bootstrap!("unable to read directory: {}", e);
             return;
         },
         Ok(x) => x,
