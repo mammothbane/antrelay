@@ -42,6 +42,7 @@ fn main() -> Result<()> {
     let _stream = trace::init()?;
 
     tracing::info!(
+        downlink_ty = lunarrelay::message::payload::log::Type::Startup,
         application = build::PACKAGE,
         version = build::VERSION,
         build_commit = build::COMMIT_HASH,

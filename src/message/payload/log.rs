@@ -18,5 +18,11 @@ pub struct Header {
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PrimitiveEnum_u8)]
 pub enum Type {
     Startup,
+    DownlinkConnected,
+    UplinkConnected,
+    SerialConnected,
+    RelayStarted,
+
+    Interrupted,
     Shutdown,
 }

@@ -16,7 +16,7 @@ use crate::message::{
 };
 
 mod ack;
-mod log;
+pub mod log;
 mod realtime_status;
 
 pub use ack::Ack;
