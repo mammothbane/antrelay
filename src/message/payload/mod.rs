@@ -1,3 +1,5 @@
+use std::marker::PhantomData;
+
 use crc::{
     Crc,
     CRC_8_SMBUS,
@@ -9,12 +11,17 @@ use packed_struct::{
 };
 
 use crate::message::{
+    util::{
+        checksum,
+        Checksum,
+    },
     HeaderPacket,
     Message,
     OpaqueBytes,
 };
 
 mod ack;
+mod log;
 mod realtime_status;
 
 pub use ack::Ack;
@@ -23,14 +30,12 @@ pub use realtime_status::RealtimeStatus;
 pub type Relay = HeaderPacket<RealtimeStatus, Vec<Message<OpaqueBytes>>>;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct Payload<T>(T);
+pub struct Payload<T, CRC>(T, PhantomData<CRC>);
 
-impl<T> Payload<T> {
-    const CRC: Crc<u8> = Crc::<u8>::new(&CRC_8_SMBUS);
-
+impl<T, CRC> Payload<T, CRC> {
     #[inline]
     pub fn new(data: T) -> Self {
-        Self(data)
+        Self(data, PhantomData)
     }
 
     #[inline]
@@ -39,38 +44,63 @@ impl<T> Payload<T> {
     }
 }
 
-impl<T> AsRef<T> for Payload<T> {
+impl<T, CRC> Payload<T, CRC>
+where
+    CRC: Checksum,
+{
+    pub const CRC_SIZE: usize = checksum::size::<CRC>();
+
+    #[inline]
+    fn split_point(buf: &[u8]) -> usize {
+        buf.len().saturating_sub(Self::CRC_SIZE)
+    }
+}
+
+impl<T, CRC> AsRef<T> for Payload<T, CRC> {
     fn as_ref(&self) -> &T {
         &self.0
     }
 }
 
-impl<T> PackedStructSlice for Payload<T>
+impl<T, CRC> PackedStructSlice for Payload<T, CRC>
 where
     T: PackedStructSlice,
+    CRC: Checksum,
+    CRC::Output: PackedStructSlice,
 {
     fn pack_to_slice(&self, output: &mut [u8]) -> PackingResult<()> {
         let size = Self::packed_bytes_size(Some(self))?;
 
-        let (payload, &mut [ref mut checksum]) = output.split_at_mut(size - 1) else {
+        let split_point = Self::split_point(output);
+        let (payload, checksum) = output[..size].split_at_mut(split_point);
+
+        if checksum.len() != Self::CRC_SIZE {
             return Err(PackingError::BufferTooSmall);
         };
 
         self.0.pack_to_slice(payload)?;
-        *checksum = Self::CRC.checksum(payload);
+
+        let computed_checksum = CRC::checksum_array(payload);
+        checksum.copy_from_slice(&computed_checksum[..]);
 
         Ok(())
     }
 
     fn unpack_from_slice(src: &[u8]) -> PackingResult<Self> {
-        let (payload, &[src_checksum]) = src.split_at(src.len() - 1) else {
+        let (payload, src_checksum) = src.split_at(Self::split_point(src));
+
+        if src_checksum.len() != Self::CRC_SIZE {
             return Err(PackingError::BufferTooSmall);
-        };
+        }
 
-        let computed_checksum = Self::CRC.checksum(payload);
+        let computed_checksum = CRC::checksum_array(payload);
 
-        if src_checksum != computed_checksum {
-            tracing::error!(src_checksum, computed_checksum, "message with invalid checksum");
+        if src_checksum != &computed_checksum[..] {
+            tracing::error!(
+                src_checksum = %hex::encode(src_checksum),
+                computed_checksum = %hex::encode(computed_checksum),
+                "message with invalid checksum"
+            );
             return Err(PackingError::InvalidValue);
         }
 
@@ -81,7 +111,7 @@ where
     fn packed_bytes_size(opt_self: Option<&Self>) -> PackingResult<usize> {
         let slf = opt_self.ok_or(PackingError::InstanceRequiredForSize)?;
 
-        let count = T::packed_bytes_size(Some(&slf.0))? + 1;
+        let count = T::packed_bytes_size(Some(&slf.0))? + Self::CRC_SIZE;
         Ok(count)
     }
 }

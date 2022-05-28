@@ -22,6 +22,17 @@ where
 
         bits / 8
     }
+
+    pub fn payload_packed(&self) -> PackingResult<HeaderPacket<Header, OpaqueBytes>>
+    where
+        Payload: PackedStructSlice,
+        Header: Clone,
+    {
+        Ok(HeaderPacket {
+            payload: self.payload.pack_to_vec()?,
+            header:  self.header.clone(),
+        })
+    }
 }
 
 impl<Header, T> TryFrom<&HeaderPacket<Header, OpaqueBytes>> for HeaderPacket<Header, T>

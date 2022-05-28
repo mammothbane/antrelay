@@ -824,6 +824,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "hex"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
+
+[[package]]
 name = "idna"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -958,6 +964,7 @@ dependencies = [
  "async-std",
  "async-trait",
  "brotli",
+ "byteorder",
  "cfg-if",
  "chrono",
  "crc",
@@ -967,15 +974,19 @@ dependencies = [
  "failsafe",
  "fnv",
  "futures",
+ "hex",
  "lazy_static",
  "libloading",
+ "num-traits",
  "packed_struct",
+ "paste",
  "postcard",
  "proptest",
  "serde",
  "serde_json",
  "serde_repr",
  "signal-hook",
+ "smallvec",
  "smol",
  "structopt",
  "thiserror",
@@ -1185,6 +1196,12 @@ dependencies = [
  "smallvec",
  "winapi",
 ]
+
+[[package]]
+name = "paste"
+version = "1.0.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0c520e05135d6e763148b6426a837e239041653ba7becd2e538c076c738025fc"
 
 [[package]]
 name = "percent-encoding"

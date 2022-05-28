@@ -1,9 +1,3 @@
-use std::{
-    future::Future,
-    path::Path,
-    thread,
-};
-
 use smol::net::unix::UnixDatagram;
 
 pub fn signals() -> eyre::Result<smol::channel::Receiver<!>> {
@@ -11,6 +5,7 @@ pub fn signals() -> eyre::Result<smol::channel::Receiver<!>> {
         consts::*,
         iterator::Signals,
     };
+    use std::thread;
 
     let (tx, rx) = smol::channel::unbounded();
     let mut signals = Signals::new(&[SIGTERM, SIGINT])?;
@@ -22,15 +17,6 @@ pub fn signals() -> eyre::Result<smol::channel::Receiver<!>> {
     });
 
     Ok(rx)
-}
-
-#[inline]
-pub async fn either<T, U>(
-    t: impl Future<Output = T>,
-    u: impl Future<Output = U>,
-) -> either::Either<T, U> {
-    smol::future::or(async move { either::Left(t.await) }, async move { either::Right(u.await) })
-        .await
 }
 
 #[tracing::instrument(fields(path = ?p.as_ref()), skip(p), err(Display))]
@@ -52,12 +38,3 @@ pub async fn remove_and_bind(p: impl AsRef<Path>) -> eyre::Result<UnixDatagram> 
 
     Ok(result)
 }
-
-#[macro_export]
-macro_rules! bootstrap {
-    ($x:expr $( , $xs:expr )* $(,)?) => {
-        eprintln!(concat!("[bootstrap] ", $x) $( , $xs )*)
-    };
-}
-
-pub use bootstrap;

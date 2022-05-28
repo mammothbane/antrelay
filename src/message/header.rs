@@ -44,24 +44,29 @@ pub enum Destination {
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PackedStruct)]
 #[packed_struct(bit_numbering = "msb0", size_bytes = "1")]
 pub struct Type {
-    #[packed_field(bits = "0")]
+    #[packed_field(size_bits = "1")]
     pub ack: bool,
 
-    #[packed_field(bits = "1..4", ty = "enum")]
+    #[packed_field(size_bits = "1")]
+    pub acked_message_invalid: bool,
+
+    #[packed_field(size_bits = "2", ty = "enum")]
     pub target: Target,
 
-    #[packed_field(bits = "4..8", ty = "enum")]
+    #[packed_field(size_bits = "4", ty = "enum")]
     pub kind: Kind,
 }
 
 impl Type {
     pub const PONG: Self = Self {
-        ack:    true,
-        target: Target::Frontend,
-        kind:   Kind::Ping,
+        ack:                   true,
+        acked_message_invalid: false,
+        target:                Target::Frontend,
+        kind:                  Kind::Ping,
     };
 }
 
+/// The target of this *type* of message. A discriminant.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PrimitiveEnum_u8)]
 #[repr(u8)]
 pub enum Target {
@@ -114,11 +119,11 @@ mod test {
     }
 
     prop_compose! {
-        fn header_strategy()(ty in type_strategy(), seq in any::<u8>(), _timestamp in any::<u32>(), destination in dest_strategy()) -> Header {
+        fn header_strategy()(ty in type_strategy(), seq in any::<u8>(), timestamp in any::<u32>(), destination in dest_strategy()) -> Header {
             Header {
                 magic: Magic::INSTANCE,
                 destination,
-                timestamp,
+                timestamp: MissionEpoch::from(timestamp),
                 seq,
                 ty,
             }
@@ -126,9 +131,10 @@ mod test {
     }
 
     prop_compose! {
-        fn type_strategy()(ack in any::<bool>(), target in target_strategy(), kind in kind_strategy()) -> Type {
+        fn type_strategy()(ack in any::<bool>(), acked_message_invalid in any::<bool>(), target in target_strategy(), kind in kind_strategy()) -> Type {
             Type {
                 ack,
+                acked_message_invalid,
                 target,
                 kind,
             }
