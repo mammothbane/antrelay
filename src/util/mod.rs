@@ -1,5 +1,6 @@
 use std::future::Future;
 
+mod tracing;
 #[cfg(unix)]
 mod unix;
 
@@ -9,6 +10,11 @@ pub use unix::{
     remove_and_bind,
     signals,
     uds_connect,
+};
+
+pub use self::tracing::{
+    Value,
+    Values,
 };
 
 #[inline]

@@ -9,23 +9,36 @@ use tracing::{
     Event,
 };
 
-#[derive(Clone, Debug, PartialEq, PartialOrd, derive_more::From)]
-pub enum Value {
-    F64(f64),
-    I64(i64),
-    U64(u64),
-    Bool(bool),
-    String(String),
+use crate::util::tracing::Values;
+
+pub trait RetrieveValues {
+    fn values(&self) -> Values;
 }
 
-pub type SpanValues = HashMap<&'static str, Value>;
+impl<'a> RetrieveValues for Event<'a> {
+    fn values(&self) -> Values {
+        let mut visit = Visitor(HashMap::new());
+        self.record(&mut visit);
 
-struct Visitor(SpanValues);
+        visit.0
+    }
+}
+
+impl<'a> RetrieveValues for Record<'a> {
+    fn values(&self) -> Values {
+        let mut visit = Visitor(HashMap::new());
+        self.record(&mut visit);
+
+        visit.0
+    }
+}
+
+struct Visitor(Values);
 
 macro_rules! imp {
     ($name:ident, $ty:ty, $expr:expr) => {
         fn $name(&mut self, field: &::tracing::field::Field, value: $ty) {
-            self.0.insert(field.name(), Value::from($expr(value)));
+            self.0.insert(field.name(), $crate::util::tracing::Value::from($expr(value)));
         }
     };
 }
@@ -44,18 +57,4 @@ impl tracing_subscriber::field::Visit for Visitor {
     imp!(record_error, &(dyn Error + 'static), |value| format!("{}", value));
 
     imp!(record_debug, &dyn Debug, |value| format!("{:?}", value));
-}
-
-pub fn event_fields(event: &Event) -> SpanValues {
-    let mut visit = Visitor(HashMap::new());
-    event.record(&mut visit);
-
-    visit.0
-}
-
-pub fn fields(record: &Record) -> SpanValues {
-    let mut visit = Visitor(HashMap::new());
-    record.record(&mut visit);
-
-    visit.0
 }
