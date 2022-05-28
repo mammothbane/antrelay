@@ -59,7 +59,7 @@ async fn uplink_once(
     let data = {
         cfg_if::cfg_if! {
             if #[cfg(feature = "serial_cobs")] {
-                postcard::to_allocvec_cobs(&buf[..count])?
+                cobs::encode_vec(&buf[..count])
             } else {
                 Vec::from(&buf[..count])
             }

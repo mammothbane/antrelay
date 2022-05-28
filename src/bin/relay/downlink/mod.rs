@@ -77,10 +77,7 @@ pub async fn receive_serial_message(
     let data = {
         cfg_if::cfg_if! {
             if #[cfg(feature = "serial_cobs")] {
-                let (data, rest) = postcard::take_from_bytes_cobs::<Vec<u8>>(&mut buf[..count])?;
-                debug_assert_eq!(rest.len(), 0);
-
-                data
+                cobs::decode_vec(&mut buf[..count])?
             } else {
                 Vec::from(&buf[..count])
             }
@@ -92,7 +89,6 @@ pub async fn receive_serial_message(
 
 pub fn pack_downlink_message(message: &message::Message<OpaqueBytes>) -> eyre::Result<Vec<u8>> {
     let packed_message = message.pack_to_vec()?;
-    let framed_bytes = postcard::to_allocvec(&packed_message)?;
 
     let compressed_bytes = {
         let mut out = vec![];
@@ -104,7 +100,7 @@ pub fn pack_downlink_message(message: &message::Message<OpaqueBytes>) -> eyre::R
             };
         }
 
-        brotli::BrotliCompress(&mut &framed_bytes[..], &mut out, &*PARAMS)?;
+        brotli::BrotliCompress(&mut &packed_message[..], &mut out, &*PARAMS)?;
 
         out
     };

@@ -19,12 +19,12 @@ serde = { version = "1.0.136", features = ["derive"] }
 serde_repr = "0.1"
 serde_json = "1.0"
 brotli = "3.3"
-postcard = { version = "0.7", features = ["alloc", "use-std"] }
 packed_struct = { version = "0.10", features = ["use_serde"] }
 crc = "3.0"
 byteorder = "1.4"
 smallvec = "1.8"
 hex = "0.4"
+cobs = "0.1"
 
 eyre = "0.6"
 failsafe = "1.1"
