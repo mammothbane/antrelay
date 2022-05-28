@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use smol::net::unix::UnixDatagram;
 
 pub fn signals() -> eyre::Result<smol::channel::Receiver<!>> {

@@ -1,9 +1,3 @@
-use crc::Crc;
-use packed_struct::{
-    prelude::*,
-    PackingResult,
-};
-
 pub mod header;
 pub mod payload;
 mod util;

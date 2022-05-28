@@ -1,10 +1,5 @@
 use std::marker::PhantomData;
 
-use crc::{
-    Crc,
-    CRC_8_SMBUS,
-};
-use lazy_static::lazy::Lazy;
 use packed_struct::{
     prelude::*,
     PackingResult,

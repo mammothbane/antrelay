@@ -1,4 +1,3 @@
-use futures::TryStreamExt;
 use std::time::Duration;
 
 use smol::stream::{
@@ -8,7 +7,6 @@ use smol::stream::{
 
 use lunarrelay::{
     message::{
-        self,
         payload,
         Message,
         OpaqueBytes,

@@ -4,13 +4,6 @@
 #![feature(option_result_contains)]
 #![feature(const_trait_impl)]
 #![feature(let_else)]
-#![feature(adt_const_params)]
-#![feature(generic_const_exprs)]
-
-use chrono::{
-    DateTime,
-    Utc,
-};
 
 mod mission_epoch;
 

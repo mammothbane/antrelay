@@ -1,7 +1,4 @@
-use std::{
-    future::Future,
-    path::Path,
-};
+use std::future::Future;
 
 #[cfg(unix)]
 mod unix;

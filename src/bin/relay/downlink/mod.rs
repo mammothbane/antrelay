@@ -1,8 +1,5 @@
 use std::{
-    sync::atomic::{
-        AtomicU8,
-        Ordering,
-    },
+    sync::atomic::AtomicU8,
     time::Duration,
 };
 
@@ -18,7 +15,6 @@ use smol::{
 
 use lunarrelay::message::{
     self,
-    payload,
     OpaqueBytes,
 };
 pub use sockets::DownlinkSockets;
