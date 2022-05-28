@@ -28,7 +28,7 @@ pub mod visit;
 #[derive(Clone, Debug)]
 pub struct PortEvent {
     pub location: Option<(String, u32)>,
-    pub args:     visit::SpanValues,
+    pub args:     SpanValues,
     pub ty:       EventType,
 }
 

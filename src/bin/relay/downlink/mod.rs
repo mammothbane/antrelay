@@ -16,8 +16,10 @@ use smol::{
     },
 };
 
-use lunarrelay::{
-    message,
+use lunarrelay::message::{
+    self,
+    payload,
+    OpaqueBytes,
 };
 pub use sockets::DownlinkSockets;
 
@@ -31,7 +33,7 @@ lazy_static::lazy_static! {
 
 #[derive(Clone, Debug)]
 enum DownlinkStatus {
-    Continue(message::Message),
+    Continue(message::Message<OpaqueBytes>),
     Close,
 }
 
@@ -40,13 +42,13 @@ pub async fn downlink(
     downlink_sockets: DownlinkSockets,
     serial_read: impl AsyncRead + Unpin,
     done: smol::channel::Receiver<!>,
-) -> impl Stream<Item = message::Message> {
+) -> impl Stream<Item = message::Message<OpaqueBytes>> {
     let mut serial_read = smol::io::BufReader::new(serial_read);
 
     loop {
         match downlink_once(&downlink_sockets, &mut serial_read, &mut buf, &done).await {
             Ok(DownlinkStatus::Continue(_msg)) => {
-                todo!()
+                todo!();
             },
             Ok(DownlinkStatus::Close) => break,
             Err(e) => {
@@ -55,16 +57,18 @@ pub async fn downlink(
             },
         }
     }
+
+    todo!()
 }
 
-pub fn stream_serial_messages() -> impl Stream<Item = message::Message> {
+pub fn stream_serial_messages() -> impl Stream<Item = message::Message<OpaqueBytes>> {
     let mut buf = vec![0; 4096];
 
     smol::stream::repeat_with(|| receive_serial_message(todo!(), &mut buf))
         .then(|msg| async move {
             let contents = msg.await;
         })
-        .map(|elt| )
+        .map(|elt| todo!())
 }
 
 pub async fn receive_serial_message(
@@ -88,20 +92,9 @@ pub async fn receive_serial_message(
     };
 
     Ok(data)
-
-    // Ok(message::Message {
-    //     header:  message::Header {
-    //         magic:       Default::default(),
-    //         destination: message::Destination::Ground,
-    //         ty:          message::Type::PONG,
-    //         _timestamp:  lunarrelay::now(),
-    //         seq:         SEQUENCE_NUMBER.fetch_add(1, Ordering::SeqCst),
-    //     },
-    //     payload: message::Payload::new(data),
-    // })
 }
 
-pub fn pack_downlink_message(message: &message::Message) -> eyre::Result<Vec<u8>> {
+pub fn pack_downlink_message(message: &message::Message<OpaqueBytes>) -> eyre::Result<Vec<u8>> {
     let packed_message = message.pack_to_vec()?;
     let framed_bytes = postcard::to_allocvec(&packed_message)?;
 

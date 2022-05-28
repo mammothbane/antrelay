@@ -1,6 +1,9 @@
 use packed_struct::prelude::*;
 
-use crate::message::MagicValue;
+use crate::{
+    message::MagicValue,
+    MissionEpoch,
+};
 
 lazy_static::lazy_static! {
     pub static ref SIZE_BYTES: usize = {
@@ -22,16 +25,11 @@ pub struct Header {
     pub magic:       Magic,
     #[packed_field(size_bytes = "1", ty = "enum")]
     pub destination: Destination,
-    pub _timestamp:  u32,
+    #[packed_field(size_bytes = "4")]
+    pub timestamp:   MissionEpoch,
     pub seq:         u8,
     #[packed_field(size_bytes = "1")]
     pub ty:          Type,
-}
-
-impl Header {
-    pub fn timestamp(&self) -> chrono::DateTime<chrono::Utc> {
-        crate::from_rel_timestamp(self._timestamp)
-    }
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PrimitiveEnum_u8)]
@@ -120,7 +118,7 @@ mod test {
             Header {
                 magic: Magic::INSTANCE,
                 destination,
-                _timestamp,
+                timestamp,
                 seq,
                 ty,
             }

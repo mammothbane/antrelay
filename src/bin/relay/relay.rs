@@ -7,14 +7,19 @@ use smol::stream::{
 };
 
 use lunarrelay::{
-    message,
+    message::{
+        self,
+        payload,
+        Message,
+        OpaqueBytes,
+    },
     util,
 };
 
 pub async fn relay(
-    uplink: impl Stream<Item = message::Message>,
-    serial_read: impl Stream<Item = message::Message>,
-) -> (impl Stream<Item = message::Message>, impl Stream<Item = message::Message>) {
+    uplink: impl Stream<Item = Message<OpaqueBytes>>,
+    serial_read: impl Stream<Item = Message<payload::Ack>>,
+) -> (impl Stream<Item = Message<OpaqueBytes>>, impl Stream<Item = Message<payload::Ack>>) {
     let (downlink_tx, downlink_rx) = smol::channel::bounded(16);
     let (serial_tx, serial_rx) = smol::channel::bounded(16);
 
@@ -23,32 +28,32 @@ pub async fn relay(
     let circuit_breaker = mk_cb();
 
     let run_uplink = uplink
-        .then(|msg| dispatch_request(msg, &circuit_breaker, response_rx.clone()))
-        .try_for_each()
-        .for_each(|r| r.unwrap());
+        .then(|msg| dispatch_serial(msg, &circuit_breaker, response_rx.clone()))
+        .for_each(|r| {
+            r.unwrap();
+        });
 
     (downlink_rx, serial_rx)
 }
 
-#[tracing::instrument(fields(msg = ?msg), skip(cb, msgs))]
-pub async fn dispatch_request(
-    msg: message::Message,
+#[tracing::instrument(fields(msg = ?msg), skip(cb, responses))]
+pub async fn dispatch_serial(
+    msg: Message<OpaqueBytes>,
     cb: &impl failsafe::futures::CircuitBreaker,
-    mut msgs: async_broadcast::Receiver<message::Message>,
-) -> std::result::Result<message::Message, failsafe::Error<eyre::Report>> {
-    let hdr = msg.header;
-
+    mut responses: impl Stream<Item = Message<payload::Ack>> + Unpin,
+) -> Result<Message<payload::Ack>, failsafe::Error<eyre::Report>> {
     loop {
         let result = cb
             .call({
-                let msgs = &mut msgs;
+                let responses = &mut responses;
+                let header = &msg.header;
 
                 async move {
                     match util::either(
-                        msgs.find(|target_msg| {
-                            target_msg.header._timestamp >= hdr._timestamp
-                                && target_msg.header.seq == target_msg.header.seq
-                                && target_msg.header.ty == hdr.ty
+                        responses.find(|target_msg| {
+                            let payload = target_msg.payload.as_ref();
+
+                            payload.matches(header)
                         }),
                         smol::Timer::after(Duration::from_millis(500)),
                     )
@@ -75,7 +80,7 @@ pub async fn dispatch_request(
 #[inline]
 fn mk_cb() -> impl failsafe::CircuitBreaker + failsafe::futures::CircuitBreaker {
     let policy = failsafe::failure_policy::consecutive_failures(
-        10,
+        2,
         failsafe::backoff::equal_jittered(Duration::from_millis(50), Duration::from_millis(2500)),
     );
 
