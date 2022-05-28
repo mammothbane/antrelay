@@ -46,12 +46,14 @@ macro_rules! impl_checksum {
         impl $crate::message::util::Checksum for $name {
             type Output = $ty;
 
+            #[inline]
             fn checksum(vals: &[u8]) -> Self::Output {
                 const INSTANCE: ::crc::Crc<$ty> = ::crc::Crc::<$ty>::new(&$algo);
 
                 INSTANCE.checksum(vals)
             }
 
+            #[inline]
             fn checksum_array($vals: &[u8]) -> smallvec::SmallVec<[u8; 8]> {
                 $array_body
             }
