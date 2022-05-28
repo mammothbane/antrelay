@@ -5,6 +5,7 @@ mod unix;
 
 #[cfg(unix)]
 pub use unix::{
+    dynload,
     remove_and_bind,
     signals,
     uds_connect,

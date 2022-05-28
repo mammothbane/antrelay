@@ -2,6 +2,8 @@ use std::path::Path;
 
 use smol::net::unix::UnixDatagram;
 
+pub mod dynload;
+
 pub fn signals() -> eyre::Result<smol::channel::Receiver<!>> {
     use signal_hook::{
         consts::*,

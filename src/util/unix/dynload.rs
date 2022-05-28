@@ -1,12 +1,14 @@
-use std::path::Path;
+use std::{
+    os::unix::ffi::OsStrExt as _,
+    path::Path,
+};
 
-use lunarrelay::util;
+use smol::stream::StreamExt;
+
+use crate::util;
 
 #[tracing::instrument(fields(path = %dir.as_ref().display()), skip(dir))]
 pub async fn apply_patches(dir: impl AsRef<Path>) {
-    use smol::stream::StreamExt;
-    use std::os::unix::ffi::OsStrExt as _;
-
     util::bootstrap!("loading libraries from {}", dir.as_ref().display());
     let dir = match smol::fs::read_dir(dir).await {
         Err(e) => {
