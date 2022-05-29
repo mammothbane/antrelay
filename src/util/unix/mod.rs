@@ -1,9 +1,17 @@
-use std::path::Path;
+use std::{
+    io,
+    net::Shutdown,
+    path::{
+        Path,
+        PathBuf,
+    },
+};
 
 use smol::net::unix::UnixDatagram;
 
+use crate::util::DatagramSender;
+
 pub mod dynload;
-mod multisocket;
 
 pub fn signals() -> eyre::Result<smol::channel::Receiver<!>> {
     use signal_hook::{
@@ -25,7 +33,7 @@ pub fn signals() -> eyre::Result<smol::channel::Receiver<!>> {
 }
 
 #[tracing::instrument(fields(path = ?p.as_ref()), skip(p), err(Display))]
-pub fn uds_connect(p: impl AsRef<Path>) -> eyre::Result<UnixDatagram> {
+pub fn uds_connect(p: impl AsRef<Path>) -> io::Result<UnixDatagram> {
     let sock = UnixDatagram::unbound()?;
     sock.connect(p.as_ref())?;
 
@@ -33,13 +41,38 @@ pub fn uds_connect(p: impl AsRef<Path>) -> eyre::Result<UnixDatagram> {
 }
 
 #[tracing::instrument(fields(path = ?p.as_ref()), skip(p), err(Display))]
-pub async fn remove_and_bind(p: impl AsRef<Path>) -> eyre::Result<UnixDatagram> {
+pub async fn remove_and_bind(p: impl AsRef<Path>) -> io::Result<UnixDatagram> {
     match smol::fs::remove_file(&p).await {
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {},
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {},
         result => result?,
     };
 
     let result = UnixDatagram::bind(&p)?;
 
     Ok(result)
+}
+
+#[async_trait::async_trait]
+impl DatagramSender for UnixDatagram {
+    type Address = PathBuf;
+
+    #[inline]
+    async fn new(address: &PathBuf) -> io::Result<Self> {
+        uds_connect(address)
+    }
+
+    #[inline]
+    async fn send(&self, packet: &[u8]) -> io::Result<usize> {
+        self.send(&packet).await
+    }
+
+    #[inline]
+    fn shutdown(&self, how: Shutdown) -> io::Result<()> {
+        UnixDatagram::shutdown(self, how)
+    }
+
+    #[inline]
+    fn display_addr(addr: &PathBuf) -> String {
+        addr.display().to_string()
+    }
 }

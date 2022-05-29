@@ -1,5 +1,6 @@
 use std::future::Future;
 
+mod net;
 mod tracing;
 #[cfg(unix)]
 mod unix;
@@ -11,6 +12,8 @@ pub use unix::{
     signals,
     uds_connect,
 };
+
+pub use net::DatagramSender;
 
 pub use self::tracing::{
     Value,
@@ -36,7 +39,7 @@ macro_rules! bootstrap {
 #[macro_export]
 macro_rules! trace_catch {
     ($val:expr, $message:literal) => {
-        if let Err(e) = $val {
+        if let Err(ref e) = $val {
             ::tracing::error!(error = %e, $message);
         }
     };
