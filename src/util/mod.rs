@@ -33,4 +33,14 @@ macro_rules! bootstrap {
     };
 }
 
+#[macro_export]
+macro_rules! trace_catch {
+    ($val:expr, $message:literal) => {
+        if let Err(e) = $val {
+            ::tracing::error!(error = %e, $message);
+        }
+    };
+}
+
 pub use bootstrap;
+pub use trace_catch;

@@ -4,6 +4,7 @@
 #![feature(option_result_contains)]
 #![feature(const_trait_impl)]
 #![feature(let_else)]
+#![feature(associated_type_defaults)]
 
 mod mission_epoch;
 
