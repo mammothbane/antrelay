@@ -1,6 +1,6 @@
 use std::future::Future;
 
-mod net;
+pub mod net;
 mod tracing;
 #[cfg(unix)]
 mod unix;
@@ -13,12 +13,12 @@ pub use unix::{
     uds_connect,
 };
 
-pub use net::DatagramSender;
-
-pub use self::tracing::{
-    Value,
-    Values,
+pub use net::{
+    send_packets,
+    tee_packets,
 };
+
+pub use self::tracing::*;
 
 #[inline]
 pub async fn either<T, U>(

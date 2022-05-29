@@ -9,7 +9,11 @@ use std::{
 
 use smol::net::unix::UnixDatagram;
 
-use crate::util::DatagramSender;
+use crate::util::net::{
+    Datagram,
+    DatagramReceiver,
+    DatagramSender,
+};
 
 pub mod dynload;
 
@@ -20,7 +24,7 @@ pub fn signals() -> eyre::Result<smol::channel::Receiver<!>> {
     };
     use std::thread;
 
-    let (tx, rx) = smol::channel::unbounded();
+    let (tx, rx) = smol::channel::bounded(1);
     let mut signals = Signals::new(&[SIGTERM, SIGINT])?;
 
     thread::spawn(move || {
@@ -53,17 +57,12 @@ pub async fn remove_and_bind(p: impl AsRef<Path>) -> io::Result<UnixDatagram> {
 }
 
 #[async_trait::async_trait]
-impl DatagramSender for UnixDatagram {
+impl Datagram for UnixDatagram {
     type Address = PathBuf;
 
     #[inline]
-    async fn new(address: &PathBuf) -> io::Result<Self> {
+    async fn connect(address: &PathBuf) -> io::Result<Self> {
         uds_connect(address)
-    }
-
-    #[inline]
-    async fn send(&self, packet: &[u8]) -> io::Result<usize> {
-        self.send(&packet).await
     }
 
     #[inline]
@@ -74,5 +73,21 @@ impl DatagramSender for UnixDatagram {
     #[inline]
     fn display_addr(addr: &PathBuf) -> String {
         addr.display().to_string()
+    }
+}
+
+#[async_trait::async_trait]
+impl DatagramSender for UnixDatagram {
+    #[inline]
+    async fn send(&self, packet: &[u8]) -> io::Result<usize> {
+        self.send(&packet).await
+    }
+}
+
+#[async_trait::async_trait]
+impl DatagramReceiver for UnixDatagram {
+    #[inline]
+    async fn recv(&self, packet: &mut [u8]) -> io::Result<usize> {
+        self.recv(packet).await
     }
 }

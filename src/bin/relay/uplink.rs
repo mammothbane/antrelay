@@ -4,12 +4,12 @@ use std::{
 };
 
 use futures::AsyncWrite;
-use smol::{
-    io::AsyncWriteExt,
-    net::unix::UnixDatagram,
-};
+use smol::io::AsyncWriteExt;
 
-use lunarrelay::util;
+use lunarrelay::{
+    util,
+    util::net::DatagramReceiver,
+};
 
 #[derive(Copy, Clone, Debug)]
 enum UplinkStatus {
@@ -19,7 +19,7 @@ enum UplinkStatus {
 
 #[tracing::instrument(skip_all)]
 pub async fn uplink(
-    uplink_socket: UnixDatagram,
+    uplink_socket: impl DatagramReceiver,
     mut serial_write: impl AsyncWrite + Unpin,
     done: smol::channel::Receiver<!>,
 ) {
@@ -40,7 +40,7 @@ pub async fn uplink(
 
 #[tracing::instrument(skip_all)]
 async fn uplink_once(
-    sock: &UnixDatagram,
+    sock: &impl DatagramReceiver,
     serial_write: &mut (impl AsyncWrite + Unpin),
     done: &smol::channel::Receiver<!>,
     buf: &mut [u8],

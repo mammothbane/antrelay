@@ -1,86 +1,119 @@
-use std::time::Duration;
-
-use smol::stream::{
-    Stream,
-    StreamExt,
+use async_std::prelude::FutureExt;
+use std::{
+    any::Any,
+    cell::RefCell,
+    collections::HashMap,
+    sync::{
+        atomic,
+        atomic::Ordering,
+    },
+    time::Duration,
 };
 
+use async_std::sync::{
+    Arc,
+    Mutex,
+};
+use futures::{
+    AsyncWriteExt,
+    FutureExt,
+};
+use packed_struct::PackedStructSlice;
+use smol::{
+    io::{
+        AsyncBufRead,
+        AsyncBufReadExt,
+        AsyncRead,
+        AsyncWrite,
+    },
+    stream::{
+        Stream,
+        StreamExt,
+    },
+};
+use tracing::warn;
+use tracing_subscriber::filter::FilterExt;
+
+use crate::packet_io::PacketIO;
 use lunarrelay::{
     message::{
         payload,
+        payload::Ack,
         Message,
         OpaqueBytes,
     },
     util,
+    util::either,
 };
 
-pub async fn relay(
+#[derive(
+    Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord, serde::Deserialize, serde::Serialize,
+)]
+pub struct MessageId(lunarrelay::MissionEpoch, u8);
+
+#[inline]
+pub fn serialize_messages(
+    s: impl Stream<Item = Message<OpaqueBytes>>,
+) -> impl Stream<Item = eyre::Result<Vec<u8>>> {
+    s.map(|msg| msg.pack_to_vec())
+}
+
+pub async fn relay<R, W>(
     uplink: impl Stream<Item = Message<OpaqueBytes>>,
-    serial_read: impl Stream<Item = Message<payload::Ack>>,
-) -> (impl Stream<Item = Message<OpaqueBytes>>, impl Stream<Item = Message<payload::Ack>>) {
-    let (downlink_tx, downlink_rx) = smol::channel::bounded(16);
-    let (serial_tx, serial_rx) = smol::channel::bounded(16);
+    packetio: PacketIO<R, W>,
+) -> impl Stream<Item = Message<OpaqueBytes>> {
+    uplink.then(|msg| {
+        let packetio = &packetio;
 
-    let (response_tx, response_rx) = async_broadcast::broadcast(32);
+        let mut futs = vec![
+            async {
+                // todo: received packet relay format
+                // todo: local message storage?
+                let relay = downlink.send(msg.clone()).await;
+                lunarrelay::trace_catch!(relay, "failed relaying message back to downlink");
+            }
+            .boxed(),
+        ];
 
-    let circuit_breaker = mk_cb();
+        if msg.header.destination != lunarrelay::message::header::Destination::Frontend {
+            let fut = async {
+                let req = retry_serial(packetio, msg).await;
+                lunarrelay::trace_catch!(req, "no ack from serial connection");
+            };
 
-    let run_uplink = uplink
-        .then(|msg| dispatch_serial(msg, &circuit_breaker, response_rx.clone()))
-        .for_each(|r| {
-            r.unwrap();
-        });
+            futs.push(fut.boxed());
+        }
 
-    (downlink_rx, serial_rx)
+        futures::future::join_all(futs.into_iter())
+    })
 }
 
 #[tracing::instrument(fields(msg = ?msg), skip(cb, responses))]
-pub async fn dispatch_serial(
+async fn retry_serial<R, W>(
+    pio: &PacketIO<R, W>,
     msg: Message<OpaqueBytes>,
-    cb: &impl failsafe::futures::CircuitBreaker,
-    mut responses: impl Stream<Item = Message<payload::Ack>> + Unpin,
-) -> Result<Message<payload::Ack>, failsafe::Error<eyre::Report>> {
-    loop {
-        let result = cb
-            .call({
-                let responses = &mut responses;
-                let header = &msg.header;
+) -> Result<Message<Ack>, backoff::Error<eyre::Report>>
+where
+    W: AsyncWrite + Unpin,
+{
+    let backoff = backoff::ExponentialBackoffBuilder::new()
+        .with_initial_interval(Duration::from_millis(10))
+        .with_max_interval(Duration::from_secs(2))
+        .with_randomization_factor(0.5)
+        .with_max_elapsed_time(Some(Duration::from_secs(3)))
+        .build();
 
-                async move {
-                    match util::either(
-                        responses.find(|target_msg| {
-                            let payload = target_msg.payload.as_ref();
+    backoff::future::retry_notify(
+        backoff,
+        || async {
+            let g = pio.request(msg).await?;
+            let ret = g.wait().await?;
 
-                            payload.matches(header)
-                        }),
-                        smol::Timer::after(Duration::from_millis(500)),
-                    )
-                    .await
-                    {
-                        either::Left(find_result) => {
-                            find_result.ok_or_else(|| eyre::eyre!("no response"))
-                        },
-                        either::Right(_timeout) => Err(eyre::eyre!("timed out")),
-                    }
-                }
-            })
-            .await;
-
-        match result {
-            Err(failsafe::Error::Rejected) | Ok(_) => return result,
-            Err(e) => {
-                tracing::error!(nonfatal = true, error = %e, "awaiting ack");
-            },
-        }
-    }
-}
-
-#[inline]
-fn mk_cb() -> impl failsafe::CircuitBreaker + failsafe::futures::CircuitBreaker {
-    let policy = failsafe::failure_policy::consecutive_failures(
-        2,
-        failsafe::backoff::equal_jittered(Duration::from_millis(50), Duration::from_millis(2500)),
-    );
-
-    failsafe::Config::new().failure_policy(policy).build()
+            Ok(ret)
+        },
+        |e, dur| {
+            tracing::error!(error = %e, "retrieving from serial");
+        },
+    )
+    .await
 }

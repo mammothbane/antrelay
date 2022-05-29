@@ -7,7 +7,7 @@ use tracing_subscriber::{
     EnvFilter,
 };
 
-pub fn init() -> eyre::Result<impl Stream<Item = PortEvent>> {
+pub fn init() -> eyre::Result<impl Stream<Item = lunarrelay::util::Event>> {
     let stderr_layer = tracing_subscriber::fmt::layer()
         .with_writer(std::io::stderr)
         .with_span_events(FmtSpan::CLOSE);
@@ -27,7 +27,7 @@ pub fn init() -> eyre::Result<impl Stream<Item = PortEvent>> {
     tracing_subscriber::registry()
         .with(mk_level_filter())
         .with(stderr_layer)
-        .with(DownlinkForwardLayer(tx))
+        .with(lunarrelay::util::EventStream(tx))
         .init();
 
     Ok(rx)

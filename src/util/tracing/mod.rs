@@ -3,6 +3,7 @@ use std::collections::HashMap;
 mod event_stream;
 mod visit;
 
+pub use event_stream::*;
 pub use visit::RetrieveValues;
 
 #[derive(Clone, Debug, PartialEq, PartialOrd, derive_more::From)]

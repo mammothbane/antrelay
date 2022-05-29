@@ -17,9 +17,6 @@ use lunarrelay::message::{
     self,
     OpaqueBytes,
 };
-pub use sockets::DownlinkSockets;
-
-mod sockets;
 
 const SENTINEL: u8 = 0;
 
@@ -35,14 +32,13 @@ enum DownlinkStatus {
 
 #[tracing::instrument(skip_all)]
 pub async fn downlink(
-    downlink_sockets: DownlinkSockets,
     serial_read: impl AsyncRead + Unpin,
     done: smol::channel::Receiver<!>,
 ) -> impl Stream<Item = message::Message<OpaqueBytes>> {
     let mut serial_read = smol::io::BufReader::new(serial_read);
 
     loop {
-        match downlink_once(&downlink_sockets, &mut serial_read, &mut buf, &done).await {
+        match downlink_once(&mut serial_read, &mut buf, &done).await {
             Ok(DownlinkStatus::Continue(_msg)) => {
                 todo!();
             },

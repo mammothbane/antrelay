@@ -2,23 +2,40 @@
 #![feature(never_type)]
 #![feature(proc_macro_hygiene)]
 #![feature(stmt_expr_attributes)]
+#![feature(let_else)]
 
 use eyre::Result;
 use lunarrelay::build;
 use structopt::StructOpt as _;
 
-use downlink::DownlinkSockets;
-use lunarrelay::util;
+use lunarrelay::util::{
+    self,
+    net::{
+        receive_packets,
+        Datagram,
+        DatagramReceiver,
+        DatagramSender,
+        DEFAULT_BACKOFF,
+    },
+    send_packets,
+};
 
 pub use crate::options::Options;
+use crate::packet_io::PacketIO;
 
-pub mod downlink;
+// pub mod downlink;
 pub mod trace;
-pub mod uplink;
+// pub mod uplink;
 
-mod dynload;
 mod options;
+mod packet_io;
 mod relay;
+
+#[cfg(windows)]
+type Socket = smol::net::UdpSocket;
+
+#[cfg(unix)]
+type Socket = smol::net::unix::UnixDatagram;
 
 fn main() -> Result<()> {
     util::bootstrap!(
@@ -31,18 +48,22 @@ fn main() -> Result<()> {
     );
 
     let options: Options = Options::from_args();
-    smol::block_on(dynload::apply_patches(&options.lib_dir));
 
-    util::bootstrap!("binding downlink sockets");
-    let downlink_sockets = tracing::info_span!("binding downlink sockets")
-        .in_scope(|| (!options.disable_unix_sockets).then(|| DownlinkSockets::try_from(&options)))
-        .transpose()?;
-    util::bootstrap!("downlink sockets bound");
+    #[cfg(unix)]
+    smol::block_on(lunarrelay::util::dynload::apply_patches(&options.lib_dir));
 
-    let _stream = trace::init()?;
+    let (downlink_tx, downlink_rx) = async_broadcast::broadcast(1024);
+
+    let downlink_task = util::tee_packets(
+        options.downlink_sockets.clone(),
+        *util::net::DEFAULT_BACKOFF,
+        downlink_rx,
+    );
+
+    let log_stream = trace::init()?;
 
     tracing::info!(
-        downlink_ty = lunarrelay::message::payload::log::Type::Startup,
+        downlink_ty = ?lunarrelay::message::payload::log::Type::Startup,
         application = build::PACKAGE,
         version = build::VERSION,
         build_commit = build::COMMIT_HASH,
@@ -50,10 +71,6 @@ fn main() -> Result<()> {
         using_rustc = build::RUSTC_COMMIT_HASH,
         "tracing subsystem initialized"
     );
-
-    let uplink_socket = (!options.disable_unix_sockets)
-        .then(|| util::uds_connect(options.uplink_sock))
-        .transpose()?;
 
     let serial = tracing::info_span!("opening serial port").in_scope(
         || -> Result<async_compat::Compat<tokio_serial::SerialStream>> {
@@ -68,25 +85,16 @@ fn main() -> Result<()> {
         },
     )?;
 
-    let (serial_read, serial_write) = smol::io::split(serial);
-
     let signal_done = util::signals()?;
 
-    let (uplink_task, downlink_task) = tracing::info_span!("starting link comms").in_scope(|| {
-        let uplink_task = uplink_socket.map(|uplink_socket| {
-            let fut = uplink::uplink(uplink_socket, serial_write, signal_done.clone());
+    let (serial_read, serial_write) = smol::io::split(serial);
+    let packet_rpc =
+        PacketIO::new(smol::io::BufReader::new(serial_read), serial_write, signal_done.clone());
 
-            smol::spawn(fut)
-        });
+    let uplink_stream = receive_packets(options.uplink_socket.clone(), *DEFAULT_BACKOFF);
+    packet_rpc.read_messages()
 
-        let downlink_task = downlink_sockets.map(|downlink_sockets| {
-            let fut = downlink::downlink(downlink_sockets, serial_read, signal_done.clone());
-
-            smol::spawn(fut)
-        });
-
-        (uplink_task, downlink_task)
-    });
+    relay::relay(uplink_stream, downlink_tx, packet_rpc);
 
     smol::block_on(async move {
         let _ = signal_done.recv().await;
