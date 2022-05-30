@@ -1,4 +1,10 @@
-use std::marker::PhantomData;
+use std::{
+    fmt::Debug,
+    hash::Hash,
+    marker::PhantomData,
+};
+
+use once_cell::sync::OnceCell;
 
 use packed_struct::{
     prelude::*,
@@ -24,26 +30,64 @@ pub use realtime_status::RealtimeStatus;
 
 pub type Relay = HeaderPacket<RealtimeStatus, Vec<Message<OpaqueBytes>>>;
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct Payload<T, CRC>(T, PhantomData<CRC>);
+#[derive(Debug, Clone, PartialEq)]
+pub struct CRCWrap<T, CRC> {
+    val:            T,
+    cache_bytes:    OnceCell<PackingResult<Vec<u8>>>,
+    cache_checksum: OnceCell<PackingResult<checksum::Array>>,
+    _phantom:       PhantomData<CRC>,
+}
 
-impl<T, CRC> Payload<T, CRC> {
+impl<T, CRC> CRCWrap<T, CRC> {
     #[inline]
     pub fn new(data: T) -> Self {
-        Self(data, PhantomData)
+        Self {
+            val:            data,
+            cache_bytes:    OnceCell::new(),
+            cache_checksum: OnceCell::new(),
+            _phantom:       PhantomData,
+        }
     }
 
     #[inline]
     pub fn take(self) -> T {
-        self.0
+        self.val
     }
 }
 
-impl<T, CRC> Payload<T, CRC>
+impl<T, CRC> CRCWrap<T, CRC>
 where
     CRC: Checksum,
 {
     pub const CRC_SIZE: usize = checksum::size::<CRC>();
+
+    #[inline]
+    pub fn payload_bytes(&self) -> PackingResult<&[u8]>
+    where
+        T: PackedStructSlice,
+    {
+        self.cache_bytes
+            .get_or_init(|| self.val.pack_to_vec())
+            .as_ref()
+            .map_err(|e| *e)
+            .map(|v| v.as_slice())
+    }
+
+    #[inline]
+    pub fn checksum(&self) -> PackingResult<&[u8]>
+    where
+        T: PackedStructSlice,
+    {
+        self.cache_checksum
+            .get_or_init(|| {
+                let payload = self.payload_bytes()?;
+
+                Ok(CRC::checksum_array(payload))
+            })
+            .as_ref()
+            .map(|array| array.as_slice())
+            .map_err(|&e| e)
+    }
 
     #[inline]
     fn split_point(buf: &[u8]) -> usize {
@@ -51,17 +95,16 @@ where
     }
 }
 
-impl<T, CRC> AsRef<T> for Payload<T, CRC> {
+impl<T, CRC> AsRef<T> for CRCWrap<T, CRC> {
     fn as_ref(&self) -> &T {
-        &self.0
+        &self.val
     }
 }
 
-impl<T, CRC> PackedStructSlice for Payload<T, CRC>
+impl<T, CRC> PackedStructSlice for CRCWrap<T, CRC>
 where
     T: PackedStructSlice,
     CRC: Checksum,
-    CRC::Output: PackedStructSlice,
 {
     fn pack_to_slice(&self, output: &mut [u8]) -> PackingResult<()> {
         let size = Self::packed_bytes_size(Some(self))?;
@@ -73,10 +116,8 @@ where
             return Err(PackingError::BufferTooSmall);
         };
 
-        self.0.pack_to_slice(payload)?;
-
-        let computed_checksum = CRC::checksum_array(payload);
-        checksum.copy_from_slice(&computed_checksum[..]);
+        payload.copy_from_slice(self.payload_bytes()?);
+        checksum.copy_from_slice(self.checksum()?);
 
         Ok(())
     }
@@ -88,25 +129,28 @@ where
             return Err(PackingError::BufferTooSmall);
         }
 
-        let computed_checksum = CRC::checksum_array(payload);
+        let payload = T::unpack_from_slice(payload)?;
+        let result = Self::new(payload);
 
-        if src_checksum != &computed_checksum[..] {
+        let computed_checksum = result.checksum()?;
+
+        if src_checksum != computed_checksum {
             tracing::error!(
                 src_checksum = %hex::encode(src_checksum),
                 computed_checksum = %hex::encode(computed_checksum),
                 "message with invalid checksum"
             );
+
             return Err(PackingError::InvalidValue);
         }
 
-        let payload = T::unpack_from_slice(payload)?;
-        Ok(Self::new(payload))
+        Ok(result)
     }
 
     fn packed_bytes_size(opt_self: Option<&Self>) -> PackingResult<usize> {
         let slf = opt_self.ok_or(PackingError::InstanceRequiredForSize)?;
 
-        let count = T::packed_bytes_size(Some(&slf.0))? + Self::CRC_SIZE;
+        let count = T::packed_bytes_size(Some(&slf.val))? + Self::CRC_SIZE;
         Ok(count)
     }
 }

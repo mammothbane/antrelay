@@ -1,8 +1,11 @@
+pub const SMALLVEC_SIZE: usize = 8;
+pub type Array = smallvec::SmallVec<[u8; SMALLVEC_SIZE]>;
+
 pub trait Checksum {
     type Output: num_traits::PrimInt;
 
     fn checksum(vals: &[u8]) -> Self::Output;
-    fn checksum_array(vals: &[u8]) -> smallvec::SmallVec<[u8; 8]>;
+    fn checksum_array(vals: &[u8]) -> smallvec::SmallVec<[u8; SMALLVEC_SIZE]>;
 }
 
 #[inline]

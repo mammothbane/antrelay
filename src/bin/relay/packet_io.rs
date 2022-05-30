@@ -1,19 +1,8 @@
-use std::{
-    cell::RefCell,
-    future::Future,
-    pin::Pin,
-    task::{
-        Context,
-        Poll,
-    },
-};
+use std::cell::RefCell;
 
 use async_std::{
     prelude::Stream,
-    sync::{
-        Arc,
-        Mutex,
-    },
+    sync::Mutex,
 };
 use eyre::WrapErr;
 use futures::{
@@ -23,87 +12,83 @@ use futures::{
 };
 use packed_struct::PackedStructSlice;
 use smol::{
-    future::FutureExt,
     io::AsyncBufReadExt,
     stream::StreamExt,
 };
+use tap::Pipe;
 
 use lunarrelay::{
     message::{
-        payload::Ack,
+        crc_wrap::Ack,
+        CRCWrap,
         Message,
         OpaqueBytes,
+        UniqueId,
     },
+    trace_catch,
     util,
+    util::log_and_discard_errors,
 };
-
-use crate::relay::MessageId;
 
 #[derive(Debug)]
 pub struct PacketIO<R, W> {
-    r: RefCell<R>,
+    r: Mutex<R>,
     w: Mutex<W>,
 
     shutdown: smol::channel::Receiver<!>,
 
-    pending_acks: dashmap::DashMap<MessageId, smol::channel::Sender<Arc<Message<OpaqueBytes>>>>,
+    pending_acks: dashmap::DashMap<UniqueId, smol::channel::Sender<Message<Ack>>>,
 }
 
 impl<R, W> PacketIO<R, W> {
     pub fn new(r: R, w: W, shutdown: smol::channel::Receiver<!>) -> Self {
         Self {
-            r: RefCell::new(r),
+            r: Mutex::new(r),
             w: Mutex::new(w),
             shutdown,
             pending_acks: dashmap::DashMap::new(),
         }
     }
 
-    pub async fn request<T, U>(&self, msg: Message<T>) -> eyre::Result<Guard<'_, R, W>>
+    pub async fn request<T>(&self, msg: &Message<T>) -> eyre::Result<ReqHandle<'_, R, W>>
     where
         W: AsyncWrite + Unpin,
         T: PackedStructSlice,
     {
         let (tx, rx) = smol::channel::bounded(1);
 
-        let message_id = MessageId(msg.header.timestamp, msg.header.seq);
+        let message_id = msg.header.unique_id();
 
         let old_sender = self.pending_acks.insert(message_id, tx);
         debug_assert!(old_sender.is_none());
 
-        let written = async {
+        {
             let mut w = self.w.lock().await;
             w.write_all(&msg.pack_to_vec()?).await?;
-
-            Ok(())
-        };
-
-        match util::either(written, self.shutdown.recv()).await {
-            either::Right(_) => return Err(eyre::eyre!("shutdown")),
-            either::Left(_) => {},
         }
 
-        Ok(Guard {
+        Ok(ReqHandle {
             parent:   self,
             id:       message_id,
             receiver: rx,
         })
     }
 
-    pub fn read_messages(&self, sentinel: u8) -> impl Stream<Item = Arc<Message<OpaqueBytes>>>
+    pub async fn read_packets(&self, sentinel: u8) -> impl Stream<Item = Message<OpaqueBytes>> + '_
     where
         R: AsyncBufRead + Unpin,
     {
-        let mut buf = vec![0u8; 8192];
+        let sentinel = sentinel;
+        let lock = self.r.lock().await;
 
-        smol::stream::try_unfold(self.r.borrow_mut(), |mut r| {
-            let buf = &mut buf;
+        smol::stream::try_unfold((vec![0u8; 8192], lock), move |(mut buf, mut r)| {
+            let shutdown = self.shutdown.clone();
 
             async move {
-                let count =
-                    match util::either(r.read_until(sentinel, buf), self.shutdown.recv()).await {
+                let count: usize =
+                    match util::either(r.read_until(sentinel, &mut buf), shutdown.recv()).await {
+                        either::Left(result) => result?,
                         either::Right(_) => return Ok(None),
-                        either::Left(count) => count,
                     };
 
                 let bytes = &mut buf[..count];
@@ -119,58 +104,52 @@ impl<R, W> PacketIO<R, W> {
                 };
 
                 let packet = <Message<OpaqueBytes> as PackedStructSlice>::unpack_from_slice(data)?;
-                Ok(Some((packet, r))) as eyre::Result<Option<(Message<OpaqueBytes>, _)>>
+                Ok(Some((packet, (buf, r)))) as eyre::Result<Option<(Message<OpaqueBytes>, _)>>
             }
         })
-        .filter_map(|msg_result| {
-            lunarrelay::trace_catch!(msg_result, "reading message over serial");
-            msg_result.ok()
-        })
-        .map(Arc::new)
+        .pipe(|s| log_and_discard_errors(s, "reading message over serial"))
         .map(|msg| {
-            if !msg.header.ty.ack {
-                return msg;
-            }
-
-            let Ok(ack): Result<Message<Ack>, _> = msg.try_into().wrap_err("parsing ack message") else {
-                return msg;
-            };
-
-            let payload = ack.payload.as_ref();
-
-            let message_id = MessageId(payload.timestamp, payload.seq);
-
-            match self.pending_acks.remove(&message_id) {
-                Some((_, tx)) => {
-                    debug_assert_eq!(tx.len(), 0);
-
-                    let send_result = tx.try_send(msg.clone());
-                    lunarrelay::trace_catch!(send_result, "channel was full");
-                },
-                None => {
-                    tracing::warn!(id = ?message_id, "no registered handler for message")
-                },
+            if msg.header.ty.ack {
+                trace_catch!(self.handle_ack(&msg), "parsing ack message");
             }
 
             msg
         })
     }
+
+    fn handle_ack(&self, msg: &Message<OpaqueBytes>) -> eyre::Result<()> {
+        let ack = msg.payload_into::<CRCWrap<Ack>>().wrap_err("parsing ack message")?;
+        let message_id = ack.payload.as_ref().unique_id();
+
+        match self.pending_acks.remove(&message_id) {
+            Some((_, tx)) => {
+                debug_assert_eq!(tx.len(), 0);
+
+                tx.try_send(ack)?;
+            },
+            None => {
+                tracing::warn!(id = ?message_id, "no registered handler for message");
+            },
+        }
+
+        Ok(())
+    }
 }
 
-pub struct Guard<'a, R, W> {
+pub struct ReqHandle<'a, R, W> {
     parent:   &'a PacketIO<R, W>,
-    id:       MessageId,
-    receiver: smol::channel::Receiver<Arc<Message<OpaqueBytes>>>,
+    id:       UniqueId,
+    receiver: smol::channel::Receiver<Message<Ack>>,
 }
 
-impl<'a, R, W> Guard<'a, R, W> {
+impl<'a, R, W> ReqHandle<'a, R, W> {
     #[inline]
-    pub async fn wait(&self) -> Result<Arc<Message<OpaqueBytes>>, smol::channel::RecvError> {
+    pub async fn wait(&self) -> Result<Message<Ack>, smol::channel::RecvError> {
         self.receiver.recv().await
     }
 }
 
-impl<'a, R, W> Drop for Guard<'a, R, W> {
+impl<'a, R, W> Drop for ReqHandle<'a, R, W> {
     #[inline]
     fn drop(&mut self) {
         self.parent.pending_acks.remove(&self.id);

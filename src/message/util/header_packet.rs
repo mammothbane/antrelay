@@ -33,22 +33,19 @@ where
             header:  self.header.clone(),
         })
     }
-}
 
-impl<Header, T> TryFrom<&HeaderPacket<Header, OpaqueBytes>> for HeaderPacket<Header, T>
-where
-    T: PackedStructSlice,
-    Header: Clone,
-{
-    type Error = PackingError;
-
-    #[inline]
-    fn try_from(pkt: &HeaderPacket<Header, OpaqueBytes>) -> PackingResult<Self> {
-        let payload = T::unpack_from_slice(&pkt.payload)?;
+    pub fn payload_into<T>(&self) -> PackingResult<HeaderPacket<Header, T>>
+    where
+        Payload: PackedStructSlice,
+        Header: Clone,
+        T: PackedStructSlice,
+    {
+        let packed_payload = self.payload.pack_to_vec()?;
+        let new_payload = T::unpack_from_slice(&packed_payload)?;
 
         Ok(HeaderPacket {
-            header: pkt.header.clone(),
-            payload,
+            header:  self.header.clone(),
+            payload: new_payload,
         })
     }
 }

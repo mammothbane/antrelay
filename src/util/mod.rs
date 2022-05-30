@@ -1,9 +1,23 @@
-use std::future::Future;
+use std::{
+    error::Error,
+    future::Future,
+};
+
+use smol::stream::{
+    Stream,
+    StreamExt,
+};
 
 pub mod net;
 mod tracing;
 #[cfg(unix)]
 mod unix;
+
+#[cfg(windows)]
+mod windows;
+
+#[cfg(windows)]
+pub use windows::signals;
 
 #[cfg(unix)]
 pub use unix::{
@@ -13,10 +27,7 @@ pub use unix::{
     uds_connect,
 };
 
-pub use net::{
-    send_packets,
-    tee_packets,
-};
+pub use net::send_packets;
 
 pub use self::tracing::*;
 
@@ -29,6 +40,46 @@ pub async fn either<T, U>(
         .await
 }
 
+pub fn splittable_stream<S>(s: S, buffer: usize) -> impl Stream<Item = S::Item> + Clone + Unpin
+where
+    S: Stream + Send + 'static,
+    S::Item: Clone + Send + Sync,
+{
+    let (tx, rx) = {
+        let (mut tx, rx) = async_broadcast::broadcast(buffer);
+        tx.set_overflow(true);
+
+        (tx, rx.deactivate())
+    };
+
+    smol::spawn(async move {
+        let tx = tx;
+
+        s.for_each(|s| {
+            trace_catch!(tx.try_broadcast(s), "broadcasting to splittable stream");
+        })
+        .await;
+    })
+    .detach();
+
+    rx.activate_cloned()
+}
+
+#[inline]
+pub fn log_and_discard_errors<T, E>(
+    s: impl Stream<Item = Result<T, E>>,
+    msg: &'static str,
+) -> impl Stream<Item = T>
+where
+    E: std::fmt::Display,
+{
+    s.filter_map(move |x| {
+        trace_catch!(x, msg);
+
+        x.ok()
+    })
+}
+
 #[macro_export]
 macro_rules! bootstrap {
     ($x:expr $( , $xs:expr )* $(,)?) => {
@@ -38,9 +89,9 @@ macro_rules! bootstrap {
 
 #[macro_export]
 macro_rules! trace_catch {
-    ($val:expr, $message:literal) => {
+    ($val:expr, $($rest:tt)*) => {
         if let Err(ref e) = $val {
-            ::tracing::error!(error = %e, $message);
+            ::tracing::error!(error = %e, $($rest)*);
         }
     };
 }

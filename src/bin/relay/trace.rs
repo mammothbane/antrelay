@@ -27,7 +27,7 @@ pub fn init() -> eyre::Result<impl Stream<Item = lunarrelay::util::Event>> {
     tracing_subscriber::registry()
         .with(mk_level_filter())
         .with(stderr_layer)
-        .with(lunarrelay::util::EventStream(tx))
+        .with(lunarrelay::util::EventStream::new(tx))
         .init();
 
     Ok(rx)

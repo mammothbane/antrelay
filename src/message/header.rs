@@ -1,7 +1,10 @@
 use packed_struct::prelude::*;
 
 use crate::{
-    message::MagicValue,
+    message::{
+        MagicValue,
+        UniqueId,
+    },
     MissionEpoch,
 };
 
@@ -30,6 +33,16 @@ pub struct Header {
     pub seq:         u8,
     #[packed_field(size_bytes = "1")]
     pub ty:          Type,
+}
+
+impl Header {
+    #[inline]
+    pub fn unique_id(&self) -> UniqueId {
+        UniqueId {
+            timestamp: self.timestamp,
+            seq:       self.seq,
+        }
+    }
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PrimitiveEnum_u8)]

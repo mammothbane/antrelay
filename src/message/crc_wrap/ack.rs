@@ -2,6 +2,7 @@ use packed_struct::prelude::*;
 
 use crate::{
     message,
+    message::UniqueId,
     MissionEpoch,
 };
 
@@ -17,6 +18,14 @@ pub struct Ack {
 impl Ack {
     #[inline]
     pub fn matches(&self, header: &message::Header) -> bool {
-        header.seq == self.seq && header.timestamp == self.timestamp
+        self.unique_id() == header.unique_id()
+    }
+
+    #[inline]
+    pub fn unique_id(&self) -> UniqueId {
+        UniqueId {
+            timestamp: self.timestamp,
+            seq:       self.seq,
+        }
     }
 }

@@ -1,83 +1,24 @@
-use async_compat::CompatExt;
 use std::{
     cell::RefCell,
     error::Error,
-    io,
-    net::{
-        Shutdown,
-        SocketAddr,
-    },
+    net::Shutdown,
     rc::Rc,
     time::Duration,
 };
 
 use backoff::backoff::Backoff;
-use smol::{
-    net::UdpSocket,
-    stream::{
-        Stream,
-        StreamExt,
-    },
+use smol::stream::{
+    Stream,
+    StreamExt,
 };
 
-#[async_trait::async_trait]
-pub trait Datagram: Sized {
-    type Address;
-    type Error = io::Error;
+pub use self::datagram::{
+    Datagram,
+    DatagramReceiver,
+    DatagramSender,
+};
 
-    async fn connect(address: &Self::Address) -> Result<Self, Self::Error>;
-    fn shutdown(&self, how: Shutdown) -> Result<(), Self::Error>;
-    fn display_addr(addr: &Self::Address) -> String;
-}
-
-#[async_trait::async_trait]
-pub trait DatagramReceiver: Datagram {
-    async fn recv(&self, packet: &mut [u8]) -> Result<usize, Self::Error>;
-}
-
-#[async_trait::async_trait]
-pub trait DatagramSender: Datagram {
-    async fn send(&self, packet: &[u8]) -> Result<usize, Self::Error>;
-}
-
-#[async_trait::async_trait]
-impl Datagram for UdpSocket {
-    type Address = SocketAddr;
-
-    #[inline]
-    async fn connect(address: &SocketAddr) -> io::Result<Self> {
-        let sock = UdpSocket::bind("localhost:0").await?;
-        sock.connect(address).await?;
-
-        Ok(sock)
-    }
-
-    #[inline]
-    fn shutdown(&self, _how: Shutdown) -> io::Result<()> {
-        Ok(())
-    }
-
-    #[inline]
-    fn display_addr(addr: &SocketAddr) -> String {
-        addr.to_string()
-    }
-}
-
-#[async_trait::async_trait]
-impl DatagramSender for UdpSocket {
-    #[inline]
-    async fn send(&self, packet: &[u8]) -> io::Result<usize> {
-        self.send(&packet).await
-    }
-}
-
-#[async_trait::async_trait]
-impl DatagramReceiver for UdpSocket {
-    #[inline]
-    async fn recv(&self, buf: &mut [u8]) -> io::Result<usize> {
-        self.recv(buf).await
-    }
-}
+mod datagram;
 
 pub fn receive_packets<Socket>(
     address: Socket::Address,
@@ -93,7 +34,7 @@ where
                 backoff.clone(),
                 || async { Socket::connect(&address).await.map_err(backoff::Error::transient) },
                 |e, dur| {
-                    tracing::error!(error = %e, "connecting to socket");
+                    tracing::error!(error = %e, backoff_dur = ?dur, "connecting to socket");
                 },
             )
             .await?;
@@ -192,19 +133,4 @@ lazy_static::lazy_static! {
         .with_randomization_factor(0.5)
         .with_max_elapsed_time(None)
         .build();
-}
-
-pub async fn tee_packets<Socket>(
-    addrs: impl IntoIterator<Item = Socket::Address>,
-    backoff: impl Backoff + Clone,
-    packet_stream: async_broadcast::Receiver<Vec<u8>>,
-) where
-    Socket: DatagramSender,
-    Socket::Error: Error,
-{
-    let futs = addrs
-        .into_iter()
-        .map(|addr| send_packets::<Socket>(addr, packet_stream.clone(), backoff.clone()));
-
-    futures::future::join_all(futs).await;
 }

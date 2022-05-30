@@ -3,29 +3,38 @@
 #![feature(proc_macro_hygiene)]
 #![feature(stmt_expr_attributes)]
 #![feature(let_else)]
+#![feature(explicit_generic_args_with_impl_trait)]
+
+extern crate core;
 
 use eyre::Result;
-use lunarrelay::build;
+use lunarrelay::{
+    build,
+    trace_catch,
+};
+use packed_struct::PackedStructSlice;
+use smol::stream::StreamExt;
 use structopt::StructOpt as _;
+use tap::Pipe;
 
 use lunarrelay::util::{
     self,
+    log_and_discard_errors,
     net::{
         receive_packets,
-        Datagram,
-        DatagramReceiver,
-        DatagramSender,
         DEFAULT_BACKOFF,
     },
     send_packets,
+    splittable_stream,
 };
 
 pub use crate::options::Options;
-use crate::packet_io::PacketIO;
+use crate::{
+    packet_io::PacketIO,
+    relay::deserialize_messages,
+};
 
-// pub mod downlink;
 pub mod trace;
-// pub mod uplink;
 
 mod options;
 mod packet_io;
@@ -52,18 +61,10 @@ fn main() -> Result<()> {
     #[cfg(unix)]
     smol::block_on(lunarrelay::util::dynload::apply_patches(&options.lib_dir));
 
-    let (downlink_tx, downlink_rx) = async_broadcast::broadcast(1024);
-
-    let downlink_task = util::tee_packets(
-        options.downlink_sockets.clone(),
-        *util::net::DEFAULT_BACKOFF,
-        downlink_rx,
-    );
-
     let log_stream = trace::init()?;
 
     tracing::info!(
-        downlink_ty = ?lunarrelay::message::payload::log::Type::Startup,
+        downlink_ty = ?lunarrelay::message::crc_wrap::log::Type::Startup,
         application = build::PACKAGE,
         version = build::VERSION,
         build_commit = build::COMMIT_HASH,
@@ -84,38 +85,49 @@ fn main() -> Result<()> {
             Ok(async_compat::Compat::new(stream))
         },
     )?;
+    let (serial_read, serial_write) = smol::io::split(serial);
 
     let signal_done = util::signals()?;
 
-    let (serial_read, serial_write) = smol::io::split(serial);
     let packet_rpc =
         PacketIO::new(smol::io::BufReader::new(serial_read), serial_write, signal_done.clone());
 
-    let uplink_stream = receive_packets(options.uplink_socket.clone(), *DEFAULT_BACKOFF);
-    packet_rpc.read_messages()
+    smol::block_on({
+        let packet_rpc = Box::leak(Box::new(packet_rpc));
 
-    relay::relay(uplink_stream, downlink_tx, packet_rpc);
+        async move {
+            let all_serial_packets = packet_rpc.read_packets(0u8).await;
 
-    smol::block_on(async move {
-        let _ = signal_done.recv().await;
-        tracing::info!("main task interrupted");
+            let uplink_stream =
+                receive_packets::<Socket>(options.uplink_socket.clone(), DEFAULT_BACKOFF.clone())
+                    .pipe(deserialize_messages)
+                    .pipe(|s| log_and_discard_errors(s, "deserializing messages"))
+                    .pipe(|s| splittable_stream(s, 1024));
 
-        let _span = tracing::info_span!("waiting for links to shutdown").entered();
+            relay::serial_relay(uplink_stream.clone(), &packet_rpc).await.for_each(|_| {}).await;
 
-        match (uplink_task, downlink_task) {
-            (Some(task), None) => {
-                task.await;
-            },
+            let downlink_collected = uplink_stream.race(all_serial_packets)
+                .map(|msg| msg.pack_to_vec()) // TODO: compress
+                .pipe(|s| log_and_discard_errors(s, "packing message for downlink"));
 
-            (None, Some(task)) => {
-                task.await;
-            },
+            let downlink_split = downlink_collected.pipe(|s| splittable_stream(s, 1024));
 
-            (Some(task1), Some(task2)) => {
-                smol::future::zip(task1, task2).await;
-            },
+            let downlink_fut = options
+                .downlink_sockets
+                .into_iter()
+                .map(move |addr| {
+                    send_packets::<Socket>(
+                        addr,
+                        downlink_split.clone(),
+                        util::net::DEFAULT_BACKOFF.clone(),
+                    )
+                })
+                .pipe(futures::future::join_all);
 
-            _ => {},
+            let _ = signal_done.recv().await;
+            tracing::info!("main task interrupted");
+
+            let _span = tracing::info_span!("waiting for links to shutdown").entered();
         }
     });
 
