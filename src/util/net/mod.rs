@@ -50,6 +50,8 @@ where
     .flat_map(|sock| {
         smol::stream::try_unfold((sock, vec![0u8; 8192]), |(sock, mut buf)| {
             Box::pin(async move {
+                tracing::debug!("waiting for data from socket");
+
                 let count = sock.recv(&mut buf).await?;
                 Ok(Some((buf[..count].to_vec(), (sock, buf)))) as eyre::Result<Option<(Vec<u8>, _)>>
             })

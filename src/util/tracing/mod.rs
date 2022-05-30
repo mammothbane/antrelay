@@ -6,7 +6,7 @@ mod visit;
 pub use event_stream::*;
 pub use visit::RetrieveValues;
 
-#[derive(Clone, Debug, PartialEq, PartialOrd, derive_more::From)]
+#[derive(Clone, Debug, PartialEq, PartialOrd, derive_more::From, derive_more::Display)]
 pub enum Value {
     F64(f64),
     I64(i64),

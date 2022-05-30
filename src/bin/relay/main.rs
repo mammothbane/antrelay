@@ -4,11 +4,26 @@
 #![feature(stmt_expr_attributes)]
 #![feature(let_else)]
 #![feature(explicit_generic_args_with_impl_trait)]
+#![feature(iter_intersperse)]
 
 extern crate core;
 
 use eyre::Result;
-use lunarrelay::build;
+use lunarrelay::{
+    build,
+    message::{
+        header::{
+            Destination,
+            Kind,
+            Target,
+            Type,
+        },
+        CRCWrap,
+        Header,
+        Message,
+    },
+    MissionEpoch,
+};
 use packed_struct::PackedStructSlice;
 use smol::stream::StreamExt;
 use structopt::StructOpt as _;
@@ -58,7 +73,7 @@ fn main() -> Result<()> {
     #[cfg(unix)]
     smol::block_on(lunarrelay::util::dynload::apply_patches(&options.lib_dir));
 
-    let _log_stream = trace::init()?;
+    let log_stream = trace::init()?;
 
     tracing::info!(
         downlink_ty = ?lunarrelay::message::crc_wrap::log::Type::Startup,
@@ -101,15 +116,46 @@ fn main() -> Result<()> {
                     .pipe(|s| log_and_discard_errors(s, "deserializing messages"))
                     .pipe(|s| splittable_stream(s, 1024));
 
-            relay::serial_relay(uplink_stream.clone(), &packet_rpc).await.for_each(|_| {}).await;
+            let serial_relay =
+                relay::serial_relay(uplink_stream.clone(), &packet_rpc).await.for_each(|_| {});
 
-            let downlink_collected = uplink_stream.race(all_serial_packets)
+            // TODO: dumb test format
+            let log_messages = log_stream.map(|logevt| {
+                let payload = logevt
+                    .args
+                    .into_iter()
+                    .map(|(name, value)| format!("{}={}", name, value))
+                    .intersperse(",".to_owned())
+                    .collect::<String>()
+                    .as_bytes()
+                    .to_vec();
+
+                let wrapped_payload = CRCWrap::<Vec<u8>>::new(payload);
+
+                Message {
+                    header:  Header {
+                        magic:       Default::default(),
+                        destination: Destination::Ground,
+                        timestamp:   MissionEpoch::now(),
+                        seq:         0,
+                        ty:          Type {
+                            ack:                   true,
+                            acked_message_invalid: false,
+                            target:                Target::Frontend,
+                            kind:                  Kind::Ping,
+                        },
+                    },
+                    payload: wrapped_payload,
+                }
+            });
+
+            let downlink_collected = uplink_stream.race(all_serial_packets).race(log_messages)
                 .map(|msg| msg.pack_to_vec()) // TODO: compress
                 .pipe(|s| log_and_discard_errors(s, "packing message for downlink"));
 
             let downlink_split = downlink_collected.pipe(|s| splittable_stream(s, 1024));
 
-            let _downlink_fut = options
+            let downlink = options
                 .downlink_sockets
                 .into_iter()
                 .map(move |addr| {
@@ -121,10 +167,7 @@ fn main() -> Result<()> {
                 })
                 .pipe(futures::future::join_all);
 
-            let _ = signal_done.recv().await;
-            tracing::info!("main task interrupted");
-
-            let _span = tracing::info_span!("waiting for links to shutdown").entered();
+            smol::future::zip(downlink, serial_relay).await;
         }
     });
 
