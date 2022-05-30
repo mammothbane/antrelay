@@ -1,6 +1,5 @@
 use std::{
     fmt::Debug,
-    hash::Hash,
     marker::PhantomData,
 };
 

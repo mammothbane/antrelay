@@ -46,12 +46,18 @@ pub fn uds_connect(p: impl AsRef<Path>) -> io::Result<UnixDatagram> {
 
 #[tracing::instrument(fields(path = ?p.as_ref()), skip(p), err(Display))]
 pub async fn remove_and_bind(p: impl AsRef<Path>) -> io::Result<UnixDatagram> {
-    match smol::fs::remove_file(&p).await {
+    let p = p.as_ref();
+
+    if let Some(parent) = p.parent() {
+        smol::fs::create_dir_all(parent).await?;
+    }
+
+    match smol::fs::remove_file(p).await {
         Err(e) if e.kind() == io::ErrorKind::NotFound => {},
         result => result?,
     };
 
-    let result = UnixDatagram::bind(&p)?;
+    let result = UnixDatagram::bind(p)?;
 
     Ok(result)
 }
@@ -63,6 +69,11 @@ impl Datagram for UnixDatagram {
     #[inline]
     async fn connect(address: &PathBuf) -> io::Result<Self> {
         uds_connect(address)
+    }
+
+    #[inline]
+    async fn bind(address: &Self::Address) -> Result<Self, Self::Error> {
+        remove_and_bind(address).await
     }
 
     #[inline]

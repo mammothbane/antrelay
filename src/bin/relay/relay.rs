@@ -1,7 +1,4 @@
-use std::{
-    sync::atomic::Ordering,
-    time::Duration,
-};
+use std::time::Duration;
 
 use eyre::WrapErr;
 use packed_struct::{
@@ -15,10 +12,7 @@ use smol::{
         StreamExt,
     },
 };
-use tap::{
-    Pipe,
-    TryConv,
-};
+use tap::Pipe;
 
 use crate::packet_io::PacketIO;
 use lunarrelay::{
@@ -37,13 +31,6 @@ lazy_static::lazy_static! {
         .with_randomization_factor(0.5)
         .with_max_elapsed_time(Some(Duration::from_secs(3)))
         .build();
-}
-
-#[inline]
-pub fn serialize_messages(
-    s: impl Stream<Item = Message<OpaqueBytes>>,
-) -> impl Stream<Item = PackingResult<Vec<u8>>> {
-    s.map(|msg| msg.pack_to_vec())
 }
 
 #[inline]

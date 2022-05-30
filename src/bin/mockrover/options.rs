@@ -1,16 +1,12 @@
-use async_std::path::PathBuf;
+use lunarrelay::util::net::Datagram;
+
+type Address = <crate::Socket as Datagram>::Address;
 
 #[derive(Debug, Clone, PartialEq, Eq, structopt::StructOpt)]
 pub struct Options {
     #[structopt(long = "uplink")]
-    pub uplink_sock: PathBuf,
+    pub uplink_sock: Address,
 
-    #[structopt(long = "telemetry")]
-    pub telemetry_sock: PathBuf,
-
-    #[structopt(long = "reliable")]
-    pub reliable_sock: PathBuf,
-
-    #[structopt(long = "store_and_forward")]
-    pub store_and_forward_sock: PathBuf,
+    #[structopt(long = "downlink", required = true)]
+    pub downlink: Vec<Address>,
 }

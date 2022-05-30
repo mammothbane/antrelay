@@ -8,9 +8,9 @@ use tracing_subscriber::{
 pub const DEFAULT_LEVEL_STR: &str = {
     cfg_if::cfg_if! {
         if #[cfg(not(debug_assertions))] {
-            "warn,mockrover=info"
+            "warn,lunarrelay=info,mockrover=info"
         } else {
-            "info,mockrover=debug"
+            "info,lunarrelay=debug,mockrover=debug"
         }
     }
 };

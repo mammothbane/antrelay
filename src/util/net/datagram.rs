@@ -13,6 +13,7 @@ pub trait Datagram: Sized {
     type Error = io::Error;
 
     async fn connect(address: &Self::Address) -> Result<Self, Self::Error>;
+    async fn bind(address: &Self::Address) -> Result<Self, Self::Error>;
     fn shutdown(&self, how: Shutdown) -> Result<(), Self::Error>;
     fn display_addr(addr: &Self::Address) -> String;
 }
@@ -31,12 +32,18 @@ pub trait DatagramSender: Datagram {
 impl Datagram for UdpSocket {
     type Address = SocketAddr;
 
+    #[tracing::instrument(err, fields(address = Self::display_addr(address).as_str()), level = "debug")]
     #[inline]
     async fn connect(address: &SocketAddr) -> io::Result<Self> {
-        let sock = UdpSocket::bind("localhost:0").await?;
+        let sock = UdpSocket::bind("127.0.0.1:0").await?;
         sock.connect(address).await?;
 
         Ok(sock)
+    }
+
+    #[inline]
+    async fn bind(address: &Self::Address) -> Result<Self, Self::Error> {
+        UdpSocket::bind(address).await
     }
 
     #[inline]

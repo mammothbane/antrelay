@@ -1,7 +1,4 @@
-use std::{
-    error::Error,
-    future::Future,
-};
+use std::future::Future;
 
 use smol::stream::{
     Stream,

@@ -20,6 +20,7 @@ pub use self::datagram::{
 
 mod datagram;
 
+#[tracing::instrument(skip(backoff), fields(address = Socket::display_addr(&address).as_str()))]
 pub fn receive_packets<Socket>(
     address: Socket::Address,
     backoff: impl Backoff + Clone,

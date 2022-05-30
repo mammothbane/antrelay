@@ -1,55 +1,72 @@
 #![feature(never_type)]
 #![feature(io_safety)]
 
-use std::{
-    net::Shutdown,
-    path::Path,
-};
+use std::net::Shutdown;
 
-use lunarrelay::util;
+use lunarrelay::{
+    util,
+    util::net::Datagram,
+};
 use structopt::StructOpt;
+use tap::Pipe;
 
 mod options;
 mod trace;
 
 pub use options::Options;
 
+#[cfg(windows)]
+type Socket = smol::net::UdpSocket;
+
+#[cfg(unix)]
+type Socket = smol::net::unix::UnixDatagram;
+
 fn main() -> eyre::Result<()> {
     trace::init();
 
-    let options: Options = Options::from_args();
+    let Options {
+        downlink,
+        uplink_sock,
+        ..
+    } = Options::from_args();
+
     let done = util::signals()?;
 
-    smol::block_on(async move {
-        let _uplink = util::remove_and_bind(&options.uplink_sock).await?;
+    tracing::info!("registered signals");
 
-        let tasks = [
-            options.telemetry_sock.clone(),
-            options.reliable_sock.clone(),
-            options.store_and_forward_sock.clone(),
-        ]
-        .map(|path| smol::spawn(log_all(path, done.clone())));
+    smol::block_on(async move {
+        let _uplink_sock = <Socket as Datagram>::bind(&uplink_sock).await?;
+        tracing::info!(addr = ?uplink_sock, "bound uplink socket");
+
+        let downlink_fut = downlink
+            .into_iter()
+            .map(|dl| log_all(dl, done.clone()))
+            .pipe(futures::future::join_all);
+
+        tracing::info!("logging messages from downlink");
+        smol::spawn(downlink_fut).detach();
 
         let _ = done.recv().await;
 
         tracing::info!("main task received interrupt, awaiting log tasks");
 
-        futures::future::join_all(tasks).await;
-
         Ok(()) as eyre::Result<()>
     })
 }
 
-#[tracing::instrument(fields(path = ?socket_path.as_ref()), skip(socket_path, done))]
+#[tracing::instrument(fields(path = ?socket_path), skip(socket_path, done))]
 async fn log_all(
-    socket_path: impl AsRef<Path>,
+    socket_path: <Socket as Datagram>::Address,
     done: smol::channel::Receiver<!>,
 ) -> eyre::Result<()> {
     let mut buf = vec![0; 4096];
 
-    let socket = util::remove_and_bind(&socket_path).await?;
+    let socket = <Socket as Datagram>::bind(&socket_path).await?;
+    tracing::debug!("bound downlink socket");
 
     loop {
+        tracing::debug!("waiting for packet");
+
         let count = match util::either(socket.recv(&mut buf), done.recv()).await {
             either::Left(Ok(count)) => count,
             either::Left(Err(e)) => {
@@ -64,10 +81,12 @@ async fn log_all(
         };
 
         let slice = &buf[..count];
-        tracing::info!(length = slice.len(), "message received");
+        tracing::debug!(length = slice.len(), "message received");
     }
 
     socket.shutdown(Shutdown::Both)?;
+
+    #[cfg(unix)]
     smol::fs::remove_file(socket_path).await?;
 
     Ok(())

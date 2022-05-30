@@ -8,10 +8,7 @@
 extern crate core;
 
 use eyre::Result;
-use lunarrelay::{
-    build,
-    trace_catch,
-};
+use lunarrelay::build;
 use packed_struct::PackedStructSlice;
 use smol::stream::StreamExt;
 use structopt::StructOpt as _;
@@ -61,7 +58,7 @@ fn main() -> Result<()> {
     #[cfg(unix)]
     smol::block_on(lunarrelay::util::dynload::apply_patches(&options.lib_dir));
 
-    let log_stream = trace::init()?;
+    let _log_stream = trace::init()?;
 
     tracing::info!(
         downlink_ty = ?lunarrelay::message::crc_wrap::log::Type::Startup,
@@ -112,7 +109,7 @@ fn main() -> Result<()> {
 
             let downlink_split = downlink_collected.pipe(|s| splittable_stream(s, 1024));
 
-            let downlink_fut = options
+            let _downlink_fut = options
                 .downlink_sockets
                 .into_iter()
                 .map(move |addr| {

@@ -1,5 +1,3 @@
-use std::cell::RefCell;
-
 use async_std::{
     prelude::Stream,
     sync::Mutex,
