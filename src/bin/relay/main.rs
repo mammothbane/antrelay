@@ -9,6 +9,11 @@
 extern crate core;
 
 use eyre::Result;
+use packed_struct::PackedStructSlice;
+use smol::stream::StreamExt;
+use structopt::StructOpt as _;
+use tap::Pipe;
+
 use lunarrelay::{
     build,
     message::{
@@ -22,22 +27,17 @@ use lunarrelay::{
         Header,
         Message,
     },
-    MissionEpoch,
-};
-use packed_struct::PackedStructSlice;
-use smol::stream::StreamExt;
-use structopt::StructOpt as _;
-use tap::Pipe;
-
-use lunarrelay::util::{
-    self,
-    log_and_discard_errors,
-    net::{
-        receive_packets,
-        DEFAULT_BACKOFF,
+    util::{
+        self,
+        log_and_discard_errors,
+        net::{
+            receive_packets,
+            DEFAULT_BACKOFF,
+        },
+        send_packets,
+        splittable_stream,
     },
-    send_packets,
-    splittable_stream,
+    MissionEpoch,
 };
 
 pub use crate::options::Options;
@@ -120,38 +120,48 @@ fn main() -> Result<()> {
                 relay::serial_relay(uplink_stream.clone(), &packet_rpc).await.for_each(|_| {});
 
             // TODO: dumb test format
-            let log_messages = log_stream.map(|logevt| {
-                let payload = logevt
-                    .args
-                    .into_iter()
-                    .map(|(name, value)| format!("{}={}", name, value))
-                    .intersperse(",".to_owned())
-                    .collect::<String>()
-                    .as_bytes()
-                    .to_vec();
+            let log_messages =
+                log_stream.pipe(|s| futures::stream::StreamExt::chunks(s, 5)).map(|evts| {
+                    let payload = evts
+                        .into_iter()
+                        .map(|evt| {
+                            evt.args
+                                .into_iter()
+                                .map(|(name, value)| format!("{}={}", name, value))
+                                .intersperse(",".to_owned())
+                                .collect::<String>()
+                        })
+                        .intersperse(":".to_owned())
+                        .collect::<String>();
 
-                let wrapped_payload = CRCWrap::<Vec<u8>>::new(payload);
+                    let payload = payload.as_bytes().iter().map(|x| *x).collect::<Vec<u8>>();
 
-                Message {
-                    header:  Header {
-                        magic:       Default::default(),
-                        destination: Destination::Ground,
-                        timestamp:   MissionEpoch::now(),
-                        seq:         0,
-                        ty:          Type {
-                            ack:                   true,
-                            acked_message_invalid: false,
-                            target:                Target::Frontend,
-                            kind:                  Kind::Ping,
+                    let wrapped_payload = CRCWrap::<Vec<u8>>::new(payload);
+
+                    Message {
+                        header:  Header {
+                            magic:       Default::default(),
+                            destination: Destination::Ground,
+                            timestamp:   MissionEpoch::now(),
+                            seq:         0,
+                            ty:          Type {
+                                ack:                   true,
+                                acked_message_invalid: false,
+                                target:                Target::Frontend,
+                                kind:                  Kind::Ping,
+                            },
                         },
-                    },
-                    payload: wrapped_payload,
-                }
-            });
+                        payload: wrapped_payload,
+                    }
+                });
 
-            let downlink_collected = uplink_stream.race(all_serial_packets).race(log_messages)
-                .map(|msg| msg.pack_to_vec()) // TODO: compress
-                .pipe(|s| log_and_discard_errors(s, "packing message for downlink"));
+            let downlink_collected = uplink_stream
+                .race(all_serial_packets)
+                .race(log_messages)
+                .map(|msg| msg.pack_to_vec())
+                .pipe(|s| log_and_discard_errors(s, "packing message for downlink"))
+                .map(|mut data| compress(&mut data))
+                .pipe(|s| log_and_discard_errors(s, "compressing message for downlink"));
 
             let downlink_split = downlink_collected.pipe(|s| splittable_stream(s, 1024));
 
@@ -172,4 +182,23 @@ fn main() -> Result<()> {
     });
 
     Ok(())
+}
+
+pub fn compress(message: &mut Vec<u8>) -> Result<Vec<u8>> {
+    let compressed_bytes = {
+        let mut out = vec![];
+
+        lazy_static::lazy_static! {
+            static ref PARAMS: brotli::enc::BrotliEncoderParams = brotli::enc::BrotliEncoderParams {
+                quality: 11,
+                ..Default::default()
+            };
+        }
+
+        brotli::BrotliCompress(&mut &message[..], &mut out, &*PARAMS)?;
+
+        out
+    };
+
+    Ok(compressed_bytes)
 }

@@ -41,11 +41,13 @@ impl Datagram for UdpSocket {
         Ok(sock)
     }
 
+    #[tracing::instrument(err, fields(address = Self::display_addr(address).as_str()), level = "debug")]
     #[inline]
     async fn bind(address: &Self::Address) -> Result<Self, Self::Error> {
         UdpSocket::bind(address).await
     }
 
+    #[tracing::instrument(err, skip_all, level = "debug")]
     #[inline]
     fn shutdown(&self, _how: Shutdown) -> io::Result<()> {
         Ok(())
@@ -59,6 +61,7 @@ impl Datagram for UdpSocket {
 
 #[async_trait::async_trait]
 impl DatagramSender for UdpSocket {
+    #[tracing::instrument(err, ret, fields(packet.len = packet.len(), self.addr = ?self.local_addr().ok()), skip(packet, self), level = "trace")]
     #[inline]
     async fn send(&self, packet: &[u8]) -> io::Result<usize> {
         self.send(&packet).await
@@ -67,6 +70,7 @@ impl DatagramSender for UdpSocket {
 
 #[async_trait::async_trait]
 impl DatagramReceiver for UdpSocket {
+    #[tracing::instrument(err, ret, fields(buf.len = buf.len(), self.addr = ?self.local_addr().ok()), skip(self, buf), level = "trace")]
     #[inline]
     async fn recv(&self, buf: &mut [u8]) -> io::Result<usize> {
         self.recv(buf).await

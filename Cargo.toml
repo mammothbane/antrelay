@@ -24,7 +24,7 @@ crc = "3.0"
 byteorder = "1.4"
 smallvec = "1.8"
 hex = "0.4"
-cobs = "0.1"
+cobs = { version = "0.1", optional = true }
 
 eyre = "0.6"
 either = "1.6"
@@ -57,8 +57,8 @@ libloading = "0.7"
 ctrlc = "3.2"
 
 [features]
-default = []
-serial_cobs = []
+default = ["serial_cobs"]
+serial_cobs = ["cobs"]
 
 [dev-dependencies]
 proptest = "1.0"

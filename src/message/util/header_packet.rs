@@ -5,7 +5,8 @@ use packed_struct::{
     PackingResult,
 };
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, derive_more::Display)]
+#[display(fmt = "{}/{:?}", header, payload)]
 pub struct HeaderPacket<Header, Payload> {
     pub header:  Header,
     pub payload: Payload,
@@ -55,8 +56,14 @@ where
     Header: PackedStructInfo + PackedStructSlice,
     Payload: PackedStructSlice,
 {
+    #[tracing::instrument(fields(output.len = output.len()), skip(self, output), err, level = "trace")]
     fn pack_to_slice(&self, output: &mut [u8]) -> PackingResult<()> {
-        let (header_bytes, payload_bytes) = output.split_at_mut(Self::header_bytes());
+        let header_len = Self::header_bytes();
+        if header_len > output.len() {
+            return Err(PackingError::BufferTooSmall);
+        }
+
+        let (header_bytes, payload_bytes) = output.split_at_mut(header_len);
 
         self.header.pack_to_slice(header_bytes)?;
         self.payload.pack_to_slice(payload_bytes)?;
@@ -64,8 +71,14 @@ where
         Ok(())
     }
 
+    #[tracing::instrument(skip(src), fields(src.len = src.len()), err, level = "trace")]
     fn unpack_from_slice(src: &[u8]) -> PackingResult<Self> {
-        let (header_bytes, payload_bytes) = src.split_at(Self::header_bytes());
+        let header_len = Self::header_bytes();
+        if header_len > src.len() {
+            return Err(PackingError::BufferTooSmall);
+        }
+
+        let (header_bytes, payload_bytes) = src.split_at(header_len);
 
         let header = Header::unpack_from_slice(header_bytes)?;
         let payload = Payload::unpack_from_slice(payload_bytes)?;

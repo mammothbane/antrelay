@@ -79,14 +79,21 @@ impl<R, W> PacketIO<R, W> {
         let sentinel = sentinel;
         let lock = self.r.lock().await;
 
-        smol::stream::try_unfold((vec![0u8; 8192], lock), move |(mut buf, mut r)| {
+        smol::stream::unfold((Vec::with_capacity(8192), lock), move |(mut buf, mut r)| {
             let shutdown = self.shutdown.clone();
+            buf.truncate(0);
 
             async move {
+                tracing::debug!("waiting for serial message");
+
                 let count: usize =
                     match util::either(r.read_until(sentinel, &mut buf), shutdown.recv()).await {
-                        either::Left(result) => result?,
-                        either::Right(_) => return Ok(None),
+                        either::Left(result) => {
+                            trace_catch!(result, "receiving serial message");
+
+                            result.ok()?
+                        },
+                        either::Right(_) => return None,
                     };
 
                 let bytes = &mut buf[..count];
@@ -94,19 +101,25 @@ impl<R, W> PacketIO<R, W> {
                 let data = {
                     cfg_if::cfg_if! {
                         if #[cfg(feature = "serial_cobs")] {
-                            cobs::decode_in_place_with_sentinel(bytes, sentinel)
+                            let result = cobs::decode_in_place_with_sentinel(bytes, sentinel).map_err(|()| eyre::eyre!("cobs decode failed"));
+                            trace_catch!(result, "cobs decode");
+
+                            &bytes[..result.ok()?]
                         } else {
                             bytes
                         }
                     }
                 };
 
-                let packet = <Message<OpaqueBytes> as PackedStructSlice>::unpack_from_slice(data)?;
-                Ok(Some((packet, (buf, r)))) as eyre::Result<Option<(Message<OpaqueBytes>, _)>>
+                let packet = <Message<OpaqueBytes> as PackedStructSlice>::unpack_from_slice(data);
+                Some((packet, (buf, r)))
             }
         })
+        .fuse()
         .pipe(|s| log_and_discard_errors(s, "reading message over serial"))
         .map(|msg| {
+            tracing::debug!(%msg.header, %msg.payload, "message from serial");
+
             if msg.header.ty.ack {
                 trace_catch!(self.handle_ack(&msg), "parsing ack message");
             }

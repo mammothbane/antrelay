@@ -29,7 +29,8 @@ pub use realtime_status::RealtimeStatus;
 
 pub type Relay = HeaderPacket<RealtimeStatus, Vec<Message<OpaqueBytes>>>;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, derive_more::Display)]
+#[display(fmt = "{:?}", val)]
 pub struct CRCWrap<T, CRC> {
     val:            T,
     cache_bytes:    OnceCell<PackingResult<Vec<u8>>>,

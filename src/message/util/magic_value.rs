@@ -29,6 +29,7 @@ impl<const C: u8> PackedStruct for MagicValue<C> {
         if src[..1] == [C][..] {
             Ok(Self)
         } else {
+            tracing::error!(expected = C, got = src[0], "invalid magic byte");
             Err(PackingError::InvalidValue)
         }
     }
