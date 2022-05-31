@@ -32,7 +32,6 @@ where
     Socket: DatagramReceiver,
     Socket::Error: Error + Send + Sync + 'static,
 {
-    // TODO: done
     // TODO: regular unfold
     smol::stream::try_unfold((address, backoff), |(address, backoff)| {
         Box::pin(async move {
