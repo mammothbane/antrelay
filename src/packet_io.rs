@@ -13,6 +13,7 @@ use smol::{
     io::AsyncBufReadExt,
     stream::StreamExt,
 };
+use std::sync::Arc;
 use tap::Pipe;
 
 use crate::{
@@ -72,18 +73,23 @@ impl<R, W> PacketIO<R, W> {
         })
     }
 
-    pub async fn read_packets(&self, sentinel: u8) -> impl Stream<Item = Message<OpaqueBytes>> + '_
+    pub async fn read_packets(
+        self: Arc<Self>,
+        sentinel: u8,
+    ) -> impl Stream<Item = Message<OpaqueBytes>>
     where
-        R: AsyncBufRead + Unpin,
+        R: AsyncBufRead + Unpin + 'static,
+        W: 'static,
     {
         let sentinel = sentinel;
-        let lock = self.r.lock().await;
 
-        smol::stream::unfold((Vec::with_capacity(8192), lock), move |(mut buf, mut r)| {
-            let shutdown = self.shutdown.clone();
+        smol::stream::unfold((Vec::with_capacity(8192), self.clone()), move |(mut buf, s)| {
+            let shutdown = s.shutdown.clone();
             buf.truncate(0);
 
             Box::pin(async move {
+                let mut r = s.r.lock().await;
+
                 tracing::debug!("waiting for serial message");
 
                 let count: usize =
@@ -112,12 +118,14 @@ impl<R, W> PacketIO<R, W> {
                 };
 
                 let packet = <Message<OpaqueBytes> as PackedStructSlice>::unpack_from_slice(data);
-                Some((packet, (buf, r)))
+                drop(r);
+
+                Some((packet, (buf, s)))
             })
         })
         .fuse()
         .pipe(|s| log_and_discard_errors(s, "reading message over serial"))
-        .map(|msg| {
+        .map(move |msg| {
             tracing::debug!(msg.header = %msg.header.display(), %msg.payload, "message from serial");
 
             if msg.header.ty.ack {

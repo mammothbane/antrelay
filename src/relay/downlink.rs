@@ -1,4 +1,7 @@
-use std::error::Error;
+use std::{
+    error::Error,
+    sync::Arc,
+};
 
 use async_std::prelude::Stream;
 use backoff::backoff::Backoff;
@@ -52,7 +55,7 @@ pub async fn assemble_downlink<Socket, R, W>(
     uplink: impl Stream<Item = Message<OpaqueBytes>> + Unpin + Clone + 'static,
     all_serial_packets: impl Stream<Item = Message<OpaqueBytes>> + Unpin + 'static,
     log_messages: impl Stream<Item = Message<OpaqueBytes>> + Unpin + 'static,
-    packet_io: &'static PacketIO<R, W>,
+    packet_io: Arc<PacketIO<R, W>>,
     serial_backoff: impl Backoff + Clone + 'static,
 ) -> impl Stream<Item = Vec<u8>>
 where
@@ -61,7 +64,7 @@ where
     R: AsyncRead + 'static,
     W: AsyncWrite + Unpin + 'static,
 {
-    let serial_acks = serial::relay_uplink_to_serial(uplink.clone(), &packet_io, serial_backoff)
+    let serial_acks = serial::relay_uplink_to_serial(uplink.clone(), packet_io, serial_backoff)
         .await
         .map(|msg| msg.payload_into::<CRCWrap<OpaqueBytes>>())
         .pipe(|s| log_and_discard_errors(s, "packing ack for downlink"));

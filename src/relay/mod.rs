@@ -1,5 +1,6 @@
 use std::{
     error::Error,
+    sync::Arc,
     time::Duration,
 };
 
@@ -65,10 +66,13 @@ where
     Socket: DatagramReceiver + DatagramSender,
     Socket::Error: Error + Send + Sync + 'static,
 {
-    let packet_io = PacketIO::new(smol::io::BufReader::new(serial_read), serial_write, done);
-    let packet_io = Box::leak(Box::new(packet_io));
+    let packet_io =
+        Arc::new(PacketIO::new(smol::io::BufReader::new(serial_read), serial_write, done));
 
-    let all_serial = packet_io.read_packets(0u8).await;
+    let all_serial = {
+        let packet_io = packet_io.clone();
+        packet_io.read_packets(0u8).await
+    };
 
     let uplink_split = splittable_stream(uplink, 1024);
 

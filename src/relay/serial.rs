@@ -15,6 +15,7 @@ use futures::{
     AsyncWrite,
 };
 use smol::stream::StreamExt;
+use std::sync::Arc;
 use tap::Pipe;
 
 #[tracing::instrument]
@@ -33,11 +34,12 @@ pub async fn connect_serial(
 
 pub async fn relay_uplink_to_serial<'a, 'u, R, W>(
     uplink: impl Stream<Item = Message<OpaqueBytes>> + 'u,
-    packetio: &'a PacketIO<R, W>,
+    packetio: Arc<PacketIO<R, W>>,
     request_backoff: impl Backoff + Clone + 'static,
 ) -> impl Stream<Item = Message<Ack>> + 'a
 where
-    W: AsyncWrite + Unpin,
+    W: AsyncWrite + Unpin + 'u,
+    R: 'a,
     'u: 'a,
 {
     uplink
@@ -49,11 +51,14 @@ where
         })
         .pipe(|s| log_and_discard_errors(s, "computing incoming message checksum"))
         .then(move |(msg, crc): (Message<OpaqueBytes>, Vec<u8>)| {
+            let packetio = packetio.clone();
+
             Box::pin(backoff::future::retry_notify(
                 request_backoff.clone(),
                 move || {
                     let msg = msg.clone();
                     let crc = crc.clone();
+                    let packetio = packetio.clone();
 
                     async move {
                         let g = packetio.request(&msg).await.wrap_err("sending serial request")?;
