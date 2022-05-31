@@ -9,45 +9,16 @@
 extern crate core;
 
 use eyre::Result;
-use packed_struct::PackedStructSlice;
-use smol::stream::{
-    Stream,
-    StreamExt,
-};
 use structopt::StructOpt as _;
-use tap::Pipe;
 
 use lunarrelay::{
     build,
-    message::{
-        header::{
-            Destination,
-            Kind,
-            Target,
-            Type,
-        },
-        CRCWrap,
-        Header,
-        Message,
-        OpaqueBytes,
-    },
-    net::{
-        self,
-        receive_packets,
-        DEFAULT_BACKOFF,
-    },
-    packet_io::PacketIO,
+    net,
     signals,
-    util::{
-        self,
-        log_and_discard_errors,
-        splittable_stream,
-    },
-    MissionEpoch,
+    util,
 };
 
 pub use crate::options::Options;
-use lunarrelay::util::deserialize_messages;
 
 pub mod trace;
 
@@ -84,130 +55,41 @@ fn main() -> Result<()> {
         "tracing subsystem initialized"
     );
 
-    #[cfg(unix)]
-    smol::block_on(util::dynload::apply_patches(&options.lib_dir));
-
-    let serial = tracing::info_span!("opening serial port").in_scope(
-        || -> Result<async_compat::Compat<tokio_serial::SerialStream>> {
-            let builder = tokio_serial::new(options.serial_port, options.baud);
-
-            let stream = smol::block_on(async move {
-                async_compat::Compat::new(async { tokio_serial::SerialStream::open(&builder) })
-                    .await
-            })?;
-
-            Ok(async_compat::Compat::new(stream))
-        },
-    )?;
-    let (serial_read, serial_write) = smol::io::split(serial);
-
     let signal_done = signals::signals()?;
 
-    let packet_rpc =
-        PacketIO::new(smol::io::BufReader::new(serial_read), serial_write, signal_done.clone());
-
     smol::block_on({
-        let packet_rpc = Box::leak(Box::new(packet_rpc));
-
         async move {
-            let all_serial_packets = packet_rpc.read_packets(0u8).await;
+            #[cfg(unix)]
+            util::dynload::apply_patches(&options.lib_dir).await;
 
-            let uplink_stream =
-                receive_packets::<Socket>(options.uplink_address.clone(), DEFAULT_BACKOFF.clone())
-                    .pipe(deserialize_messages)
-                    .pipe(|s| log_and_discard_errors(s, "deserializing messages"))
-                    .pipe(|s| splittable_stream(s, 1024));
+            let (read, write) =
+                lunarrelay::relay::connect_serial(options.serial_port, options.baud).await?;
 
-            let uplink_to_serial = relay::relay_uplink_to_serial(uplink_stream.clone(), packet_rpc)
-                .await
-                .map(|msg| msg.payload_into::<CRCWrap<OpaqueBytes>>())
-                .pipe(|s| log_and_discard_errors(s, "packing ack for downlink"));
+            let uplink = lunarrelay::relay::uplink_stream::<Socket>(
+                options.uplink_address.clone(),
+                net::DEFAULT_BACKOFF.clone(),
+                1024,
+            )
+            .await;
 
-            // TODO: dumb test format
-            let log_messages = dummy_log_downlink(log_stream);
+            let downlink_packets = lunarrelay::relay::relay_graph::<Socket>(
+                signal_done,
+                read,
+                write,
+                relay::SERIAL_REQUEST_BACKOFF.clone(),
+                uplink,
+                log_stream,
+            )
+            .await;
 
-            let downlink_collected = uplink_stream
-                .race(all_serial_packets)
-                .race(log_messages)
-                .race(uplink_to_serial)
-                .map(|msg| msg.pack_to_vec())
-                .pipe(|s| log_and_discard_errors(s, "packing message for downlink"))
-                .map(|mut data| compress(&mut data))
-                .pipe(|s| log_and_discard_errors(s, "compressing message for downlink"));
+            lunarrelay::relay::send_downlink::<Socket>(
+                downlink_packets,
+                options.downlink_addresses.clone(),
+                net::DEFAULT_BACKOFF.clone(),
+            )
+            .await;
 
-            let downlink_split = downlink_collected.pipe(|s| splittable_stream(s, 1024));
-
-            options
-                .downlink_addresses
-                .into_iter()
-                .map(move |addr| {
-                    net::send_packets::<Socket>(
-                        addr,
-                        downlink_split.clone(),
-                        lunarrelay::net::DEFAULT_BACKOFF.clone(),
-                    )
-                })
-                .pipe(futures::future::join_all)
-                .await;
-        }
-    });
-
-    Ok(())
-}
-
-fn compress(message: &mut Vec<u8>) -> Result<Vec<u8>> {
-    let compressed_bytes = {
-        let mut out = vec![];
-
-        lazy_static::lazy_static! {
-            static ref PARAMS: brotli::enc::BrotliEncoderParams = brotli::enc::BrotliEncoderParams {
-                quality: 11,
-                ..Default::default()
-            };
-        }
-
-        brotli::BrotliCompress(&mut &message[..], &mut out, &*PARAMS)?;
-
-        out
-    };
-
-    Ok(compressed_bytes)
-}
-
-fn dummy_log_downlink(
-    s: impl Stream<Item = lunarrelay::tracing::Event>,
-) -> impl Stream<Item = Message<OpaqueBytes>> {
-    s.pipe(|s| futures::stream::StreamExt::chunks(s, 5)).map(|evts| {
-        let payload = evts
-            .into_iter()
-            .map(|evt| {
-                evt.args
-                    .into_iter()
-                    .map(|(name, value)| format!("{}={}", name, value))
-                    .intersperse(",".to_owned())
-                    .collect::<String>()
-            })
-            .intersperse(":".to_owned())
-            .collect::<String>();
-
-        let payload = payload.as_bytes().iter().map(|x| *x).collect::<Vec<u8>>();
-
-        let wrapped_payload = CRCWrap::<Vec<u8>>::new(payload);
-
-        Message {
-            header:  Header {
-                magic:       Default::default(),
-                destination: Destination::Ground,
-                timestamp:   MissionEpoch::now(),
-                seq:         0,
-                ty:          Type {
-                    ack:                   true,
-                    acked_message_invalid: false,
-                    target:                Target::Frontend,
-                    kind:                  Kind::Ping,
-                },
-            },
-            payload: wrapped_payload,
+            Ok(())
         }
     })
 }

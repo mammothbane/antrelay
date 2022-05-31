@@ -83,7 +83,7 @@ impl<R, W> PacketIO<R, W> {
             let shutdown = self.shutdown.clone();
             buf.truncate(0);
 
-            async move {
+            Box::pin(async move {
                 tracing::debug!("waiting for serial message");
 
                 let count: usize =
@@ -113,7 +113,7 @@ impl<R, W> PacketIO<R, W> {
 
                 let packet = <Message<OpaqueBytes> as PackedStructSlice>::unpack_from_slice(data);
                 Some((packet, (buf, r)))
-            }
+            })
         })
         .fuse()
         .pipe(|s| log_and_discard_errors(s, "reading message over serial"))

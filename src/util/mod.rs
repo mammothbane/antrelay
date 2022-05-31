@@ -1,9 +1,15 @@
 use std::future::Future;
 
+use packed_struct::{
+    PackedStructSlice,
+    PackingResult,
+};
 use smol::stream::{
     Stream,
     StreamExt,
 };
+
+use crate::message::Message;
 
 #[cfg(unix)]
 pub mod dynload;
@@ -73,12 +79,7 @@ macro_rules! trace_catch {
     };
 }
 
-use crate::message::Message;
 pub use bootstrap;
-use packed_struct::{
-    PackedStructSlice,
-    PackingResult,
-};
 pub use trace_catch;
 
 #[inline]
@@ -89,4 +90,23 @@ where
     T: PackedStructSlice,
 {
     s.map(|msg| <Message<T> as PackedStructSlice>::unpack_from_slice(&msg))
+}
+
+pub fn brotli_compress(message: &mut Vec<u8>) -> eyre::Result<Vec<u8>> {
+    let compressed_bytes = {
+        let mut out = vec![];
+
+        lazy_static::lazy_static! {
+            static ref PARAMS: brotli::enc::BrotliEncoderParams = brotli::enc::BrotliEncoderParams {
+                quality: 11,
+                ..Default::default()
+            };
+        }
+
+        brotli::BrotliCompress(&mut &message[..], &mut out, &*PARAMS)?;
+
+        out
+    };
+
+    Ok(compressed_bytes)
 }
