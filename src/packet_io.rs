@@ -25,7 +25,6 @@ use crate::{
         UniqueId,
     },
     trace_catch,
-    util,
     util::log_and_discard_errors,
 };
 
@@ -34,17 +33,14 @@ pub struct PacketIO<R, W> {
     r: Mutex<R>,
     w: Mutex<W>,
 
-    shutdown: smol::channel::Receiver<!>,
-
     pending_acks: dashmap::DashMap<UniqueId, smol::channel::Sender<Message<Ack>>>,
 }
 
 impl<R, W> PacketIO<R, W> {
-    pub fn new(r: R, w: W, shutdown: smol::channel::Receiver<!>) -> Self {
+    pub fn new(r: R, w: W) -> Self {
         Self {
-            r: Mutex::new(r),
-            w: Mutex::new(w),
-            shutdown,
+            r:            Mutex::new(r),
+            w:            Mutex::new(w),
             pending_acks: dashmap::DashMap::new(),
         }
     }
@@ -84,7 +80,6 @@ impl<R, W> PacketIO<R, W> {
         let sentinel = sentinel;
 
         smol::stream::unfold((Vec::with_capacity(8192), self.clone()), move |(mut buf, s)| {
-            let shutdown = s.shutdown.clone();
             buf.truncate(0);
 
             Box::pin(async move {
@@ -92,15 +87,12 @@ impl<R, W> PacketIO<R, W> {
 
                 tracing::debug!("waiting for serial message");
 
-                let count: usize =
-                    match util::either(r.read_until(sentinel, &mut buf), shutdown.recv()).await {
-                        either::Left(result) => {
-                            trace_catch!(result, "receiving serial message");
+                let count: usize = {
+                    let result = r.read_until(sentinel, &mut buf).await;
+                    trace_catch!(result, "receiving serial message");
 
-                            result.ok()?
-                        },
-                        either::Right(_) => return None,
-                    };
+                    result.ok()?
+                };
 
                 let bytes = &mut buf[..count];
 

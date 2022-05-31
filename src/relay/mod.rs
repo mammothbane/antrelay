@@ -1,16 +1,11 @@
 use std::{
     error::Error,
-    sync::Arc,
     time::Duration,
 };
 
 use async_std::prelude::Stream;
 use backoff::backoff::Backoff;
-use futures::AsyncWrite;
-use smol::{
-    io::AsyncRead,
-    stream::StreamExt,
-};
+use smol::stream::StreamExt;
 use tap::Pipe;
 
 use crate::{
@@ -29,9 +24,7 @@ use crate::{
     net::{
         receive_packets,
         DatagramReceiver,
-        DatagramSender,
     },
-    packet_io::PacketIO,
     util::{
         deserialize_messages,
         log_and_discard_errors,
@@ -52,38 +45,6 @@ lazy_static::lazy_static! {
         .with_randomization_factor(0.5)
         .with_max_elapsed_time(Some(Duration::from_secs(3)))
         .build();
-}
-
-pub async fn graph<Socket>(
-    done: smol::channel::Receiver<!>,
-    serial_read: impl AsyncRead + Unpin + 'static,
-    serial_write: impl AsyncWrite + Unpin + 'static,
-    serial_request_backoff: impl Backoff + Clone + 'static,
-    uplink: impl Stream<Item = Message<OpaqueBytes>> + Send + 'static,
-    log_stream: impl Stream<Item = Message<OpaqueBytes>> + Unpin + 'static,
-) -> impl Stream<Item = Vec<u8>> + Unpin
-where
-    Socket: DatagramReceiver + DatagramSender,
-    Socket::Error: Error + Send + Sync + 'static,
-{
-    let packet_io =
-        Arc::new(PacketIO::new(smol::io::BufReader::new(serial_read), serial_write, done));
-
-    let all_serial = {
-        let packet_io = packet_io.clone();
-        packet_io.read_packets(0u8).await
-    };
-
-    let uplink_split = splittable_stream(uplink, 1024);
-
-    assemble_downlink::<Socket, _, _>(
-        uplink_split,
-        all_serial,
-        log_stream,
-        packet_io,
-        serial_request_backoff,
-    )
-    .await
 }
 
 pub async fn uplink_stream<Socket>(

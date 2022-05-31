@@ -1,21 +1,13 @@
-use std::{
-    error::Error,
-    sync::Arc,
-};
+use std::error::Error;
 
 use async_std::prelude::Stream;
 use backoff::backoff::Backoff;
-use futures::{
-    AsyncRead,
-    AsyncWrite,
-};
 use packed_struct::PackedStructSlice;
 use smol::stream::StreamExt;
 use tap::Pipe;
 
 use crate::{
     message::{
-        CRCWrap,
         Message,
         OpaqueBytes,
     },
@@ -23,8 +15,6 @@ use crate::{
         DatagramReceiver,
         DatagramSender,
     },
-    packet_io::PacketIO,
-    relay::serial,
     util,
     util::{
         log_and_discard_errors,
@@ -51,28 +41,18 @@ pub async fn send_downlink<Socket>(
     .await;
 }
 
-pub async fn assemble_downlink<Socket, R, W>(
+pub async fn assemble_downlink<Socket>(
     uplink: impl Stream<Item = Message<OpaqueBytes>> + Unpin + Clone + 'static,
     all_serial_packets: impl Stream<Item = Message<OpaqueBytes>> + Unpin + 'static,
     log_messages: impl Stream<Item = Message<OpaqueBytes>> + Unpin + 'static,
-    packet_io: Arc<PacketIO<R, W>>,
-    serial_backoff: impl Backoff + Clone + 'static,
 ) -> impl Stream<Item = Vec<u8>>
 where
     Socket: DatagramReceiver + DatagramSender,
     Socket::Error: Error + Send + Sync + 'static,
-    R: AsyncRead + 'static,
-    W: AsyncWrite + Unpin + 'static,
 {
-    let serial_acks = serial::relay_uplink_to_serial(uplink.clone(), packet_io, serial_backoff)
-        .await
-        .map(|msg| msg.payload_into::<CRCWrap<OpaqueBytes>>())
-        .pipe(|s| log_and_discard_errors(s, "packing ack for downlink"));
-
     uplink
         .race(all_serial_packets)
         .race(log_messages)
-        .race(serial_acks)
         .map(|msg| msg.pack_to_vec())
         .pipe(|s| log_and_discard_errors(s, "packing message for downlink"))
         .map(|mut data| util::brotli_compress(&mut data))

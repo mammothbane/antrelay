@@ -9,15 +9,21 @@
 extern crate core;
 
 use eyre::Result;
+use smol::stream::StreamExt;
+use std::sync::Arc;
 use structopt::StructOpt as _;
 
 use lunarrelay::{
     build,
     net::DEFAULT_BACKOFF,
+    packet_io::PacketIO,
     relay,
     signals,
     util,
+    util::splittable_stream,
 };
+use stream_cancel::StreamExt as _;
+use tap::Pipe;
 
 pub use crate::options::Options;
 
@@ -64,29 +70,53 @@ fn main() -> Result<()> {
 
             let (read, write) = relay::connect_serial(options.serial_port, options.baud).await?;
 
+            let (trigger, tripwire) = stream_cancel::Tripwire::new();
+
+            smol::spawn(async move {
+                signal_done.recv().await.unwrap_err();
+                trigger.cancel()
+            })
+            .detach();
+
             let uplink = relay::uplink_stream::<Socket>(
                 options.uplink_address.clone(),
                 DEFAULT_BACKOFF.clone(),
                 1024,
             )
-            .await;
+            .await
+            .take_until_if(tripwire.clone())
+            .pipe(|s| splittable_stream(s, 1024));
 
-            let downlink_packets = relay::graph::<Socket>(
-                signal_done,
-                read,
-                write,
+            let packet_io = Arc::new(PacketIO::new(smol::io::BufReader::new(read), write));
+
+            let all_serial = {
+                let packet_io = packet_io.clone();
+                packet_io.read_packets(0u8).await
+            }
+            .take_until_if(tripwire.clone());
+
+            let serial_acks = relay::relay_uplink_to_serial(
+                uplink.clone(),
+                packet_io,
                 relay::SERIAL_REQUEST_BACKOFF.clone(),
-                uplink,
-                relay::dummy_log_downlink(log_stream),
+            )
+            .await
+            .for_each(|_| {});
+
+            let downlink_packets = relay::assemble_downlink::<Socket>(
+                uplink.clone(),
+                all_serial,
+                relay::dummy_log_downlink(log_stream).take_until_if(tripwire.clone()),
             )
             .await;
 
-            relay::send_downlink::<Socket>(
+            let downlink_future = relay::send_downlink::<Socket>(
                 downlink_packets,
                 options.downlink_addresses.clone(),
                 DEFAULT_BACKOFF.clone(),
-            )
-            .await;
+            );
+
+            smol::future::zip(downlink_future, serial_acks).await;
 
             Ok(())
         }
