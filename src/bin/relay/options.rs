@@ -6,11 +6,11 @@ type Address = <crate::Socket as Datagram>::Address;
 
 #[derive(Debug, Clone, PartialEq, Eq, structopt::StructOpt)]
 pub struct Options {
-    #[structopt(long = "downlink")]
-    pub downlink_sockets: Vec<Address>,
+    #[structopt(long = "downlink", required = true)]
+    pub downlink_addresses: Vec<Address>,
 
     #[structopt(long = "uplink")]
-    pub uplink_socket: Address,
+    pub uplink_address: Address,
 
     #[structopt(short, long)]
     pub serial_port: String,

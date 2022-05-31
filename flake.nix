@@ -1,6 +1,6 @@
 {
   inputs = {
-    nixpkgs.url = "github:nixos/nixpkgs/release-21.11";
+    nixpkgs.url = "github:nixos/nixpkgs/release-22.05";
     flake-utils.url = "github:numtide/flake-utils";
 
     nixpkgs-mozilla = {
@@ -10,6 +10,7 @@
 
     naersk = {
       url = "git+ssh://gitea@git.nathanperry.dev/fork/naersk";
+      inputs.nixpkgs.follows = "nixpkgs";
     };
   };
 
@@ -139,6 +140,10 @@
         buildInputs = (with pkgs; [
           cargo
           rustc
+
+          (pkgs.writeShellScriptBin "sockpair" ''
+            exec ${pkgs.socat}/bin/socat -d -d pty,raw,echo=0 pty,raw,echo=0
+          '')
         ]) ++ deps;
 
         RUST_SRC_PATH = "${pkgs.naerskRust}/lib/rustlib/src/rust";

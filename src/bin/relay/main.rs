@@ -111,7 +111,7 @@ fn main() -> Result<()> {
             let all_serial_packets = packet_rpc.read_packets(0u8).await;
 
             let uplink_stream =
-                receive_packets::<Socket>(options.uplink_socket.clone(), DEFAULT_BACKOFF.clone())
+                receive_packets::<Socket>(options.uplink_address.clone(), DEFAULT_BACKOFF.clone())
                     .pipe(deserialize_messages)
                     .pipe(|s| log_and_discard_errors(s, "deserializing messages"))
                     .pipe(|s| splittable_stream(s, 1024));
@@ -166,7 +166,7 @@ fn main() -> Result<()> {
             let downlink_split = downlink_collected.pipe(|s| splittable_stream(s, 1024));
 
             let downlink = options
-                .downlink_sockets
+                .downlink_addresses
                 .into_iter()
                 .map(move |addr| {
                     send_packets::<Socket>(

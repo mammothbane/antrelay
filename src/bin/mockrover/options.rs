@@ -9,4 +9,7 @@ pub struct Options {
 
     #[structopt(long = "downlink", required = true)]
     pub downlink: Vec<Address>,
+
+    #[structopt(long = "serial_port")]
+    pub serial_port: String,
 }
