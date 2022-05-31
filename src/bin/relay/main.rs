@@ -23,7 +23,6 @@ pub use crate::options::Options;
 pub mod trace;
 
 mod options;
-mod relay;
 
 #[cfg(windows)]
 type Socket = smol::net::UdpSocket;
@@ -76,7 +75,7 @@ fn main() -> Result<()> {
                 signal_done,
                 read,
                 write,
-                relay::SERIAL_REQUEST_BACKOFF.clone(),
+                lunarrelay::relay::SERIAL_REQUEST_BACKOFF.clone(),
                 uplink,
                 log_stream,
             )

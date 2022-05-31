@@ -1,4 +1,7 @@
-use std::error::Error;
+use std::{
+    error::Error,
+    time::Duration,
+};
 
 use async_std::prelude::Stream;
 use backoff::backoff::Backoff;
@@ -39,6 +42,14 @@ use crate::{
     },
     MissionEpoch,
 };
+
+lazy_static::lazy_static! {
+    pub static ref SERIAL_REQUEST_BACKOFF: backoff::exponential::ExponentialBackoff<backoff::SystemClock> = backoff::ExponentialBackoffBuilder::new() .with_initial_interval(Duration::from_millis(25))
+        .with_max_interval(Duration::from_secs(1))
+        .with_randomization_factor(0.5)
+        .with_max_elapsed_time(Some(Duration::from_secs(3)))
+        .build();
+}
 
 pub async fn assemble_downlink<Socket, R, W>(
     uplink: impl Stream<Item = Message<OpaqueBytes>> + Unpin + Clone + 'static,
