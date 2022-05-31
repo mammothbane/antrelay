@@ -23,6 +23,7 @@ pub async fn either<T, U>(
         .await
 }
 
+// TODO: task to future
 pub fn splittable_stream<S>(s: S, buffer: usize) -> impl Stream<Item = S::Item> + Clone + Unpin
 where
     S: Stream + Send + 'static,
@@ -32,7 +33,7 @@ where
         let (mut tx, rx) = async_broadcast::broadcast(buffer);
         tx.set_overflow(true);
 
-        (tx, rx.deactivate())
+        (tx, rx)
     };
 
     smol::spawn(async move {
@@ -45,7 +46,7 @@ where
     })
     .detach();
 
-    rx.activate_cloned()
+    rx
 }
 
 #[inline]
