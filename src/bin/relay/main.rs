@@ -31,8 +31,8 @@ use lunarrelay::{
         Message,
         OpaqueBytes,
     },
-    net,
     net::{
+        self,
         receive_packets,
         DEFAULT_BACKOFF,
     },
@@ -47,7 +47,7 @@ use lunarrelay::{
 };
 
 pub use crate::options::Options;
-use crate::relay::deserialize_messages;
+use lunarrelay::util::deserialize_messages;
 
 pub mod trace;
 
@@ -118,8 +118,10 @@ fn main() -> Result<()> {
                     .pipe(|s| log_and_discard_errors(s, "deserializing messages"))
                     .pipe(|s| splittable_stream(s, 1024));
 
-            let serial_relay =
-                relay::serial_relay(uplink_stream.clone(), &packet_rpc).await.for_each(|_| {});
+            let uplink_to_serial = relay::relay_uplink_to_serial(uplink_stream.clone(), packet_rpc)
+                .await
+                .map(|msg| msg.payload_into::<CRCWrap<OpaqueBytes>>())
+                .pipe(|s| log_and_discard_errors(s, "packing ack for downlink"));
 
             // TODO: dumb test format
             let log_messages = dummy_log_downlink(log_stream);
@@ -127,6 +129,7 @@ fn main() -> Result<()> {
             let downlink_collected = uplink_stream
                 .race(all_serial_packets)
                 .race(log_messages)
+                .race(uplink_to_serial)
                 .map(|msg| msg.pack_to_vec())
                 .pipe(|s| log_and_discard_errors(s, "packing message for downlink"))
                 .map(|mut data| compress(&mut data))
@@ -134,7 +137,7 @@ fn main() -> Result<()> {
 
             let downlink_split = downlink_collected.pipe(|s| splittable_stream(s, 1024));
 
-            let downlink = options
+            options
                 .downlink_addresses
                 .into_iter()
                 .map(move |addr| {
@@ -144,9 +147,8 @@ fn main() -> Result<()> {
                         lunarrelay::net::DEFAULT_BACKOFF.clone(),
                     )
                 })
-                .pipe(futures::future::join_all);
-
-            smol::future::zip(downlink, serial_relay).await;
+                .pipe(futures::future::join_all)
+                .await;
         }
     });
 

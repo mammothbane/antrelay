@@ -73,5 +73,20 @@ macro_rules! trace_catch {
     };
 }
 
+use crate::message::Message;
 pub use bootstrap;
+use packed_struct::{
+    PackedStructSlice,
+    PackingResult,
+};
 pub use trace_catch;
+
+#[inline]
+pub fn deserialize_messages<T>(
+    s: impl Stream<Item = Vec<u8>>,
+) -> impl Stream<Item = PackingResult<Message<T>>>
+where
+    T: PackedStructSlice,
+{
+    s.map(|msg| <Message<T> as PackedStructSlice>::unpack_from_slice(&msg))
+}

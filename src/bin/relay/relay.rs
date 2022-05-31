@@ -33,17 +33,7 @@ lazy_static::lazy_static! {
         .build();
 }
 
-#[inline]
-pub fn deserialize_messages<T>(
-    s: impl Stream<Item = Vec<u8>>,
-) -> impl Stream<Item = PackingResult<Message<T>>>
-where
-    T: PackedStructSlice,
-{
-    s.map(|msg| <Message<T> as PackedStructSlice>::unpack_from_slice(&msg))
-}
-
-pub async fn serial_relay<'a, 'u, R, W>(
+pub async fn relay_uplink_to_serial<'a, 'u, R, W>(
     uplink: impl Stream<Item = Message<OpaqueBytes>> + 'u,
     packetio: &'a PacketIO<R, W>,
 ) -> impl Stream<Item = Message<Ack>> + 'a
