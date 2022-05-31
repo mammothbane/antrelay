@@ -187,7 +187,7 @@ async fn log_all(
         brotli::BrotliDecompress(&mut &buf[..count], &mut decompressed)?;
 
         let msg = <Message<OpaqueBytes> as PackedStructSlice>::unpack_from_slice(&decompressed)?;
-        tracing::debug!(%msg.header, %msg.payload, "decoded message");
+        tracing::debug!(msg.header = %msg.header.display(), %msg.payload, "decoded message");
     }
 
     socket.shutdown(Shutdown::Both)?;

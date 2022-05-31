@@ -1,4 +1,3 @@
-use crate::message::OpaqueBytes;
 use packed_struct::{
     prelude::*,
     PackedStructInfo,

@@ -118,7 +118,7 @@ impl<R, W> PacketIO<R, W> {
         .fuse()
         .pipe(|s| log_and_discard_errors(s, "reading message over serial"))
         .map(|msg| {
-            tracing::debug!(%msg.header, %msg.payload, "message from serial");
+            tracing::debug!(msg.header = %msg.header.display(), %msg.payload, "message from serial");
 
             if msg.header.ty.ack {
                 trace_catch!(self.handle_ack(&msg), "parsing ack message");

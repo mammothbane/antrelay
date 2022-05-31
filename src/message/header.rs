@@ -1,4 +1,5 @@
 use packed_struct::prelude::*;
+use tap::Conv;
 
 use crate::{
     message::{
@@ -42,6 +43,30 @@ impl Header {
             timestamp: self.timestamp,
             seq:       self.seq,
         }
+    }
+
+    #[inline]
+    pub fn display(&self) -> String {
+        let mut out = String::new();
+
+        if self.ty.ack {
+            out.push_str("[ack] ");
+        }
+
+        if self.ty.acked_message_invalid {
+            out.push_str("[invalid] ")
+        }
+
+        out.push_str(&format!(
+            "{:?}/{:?} to {:?} @ {} [{}]",
+            self.ty.kind,
+            self.destination,
+            self.ty.target,
+            self.timestamp.conv::<chrono::DateTime<chrono::Utc>>(),
+            self.seq,
+        ));
+
+        out
     }
 }
 

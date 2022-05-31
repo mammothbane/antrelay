@@ -1,10 +1,6 @@
 use std::time::Duration;
 
 use eyre::WrapErr;
-use packed_struct::{
-    PackedStructSlice,
-    PackingResult,
-};
 use smol::{
     io::AsyncWrite,
     stream::{
