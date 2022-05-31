@@ -4,15 +4,15 @@ use std::{
 };
 
 use smol::stream::StreamExt;
+use tap::Pipe;
 
-use crate::util;
+use crate::util::log_and_discard_errors;
 
 #[tracing::instrument(fields(path = %dir.as_ref().display()), skip(dir))]
 pub async fn apply_patches(dir: impl AsRef<Path>) {
-    util::bootstrap!("loading libraries from {}", dir.as_ref().display());
     let dir = match smol::fs::read_dir(dir).await {
         Err(e) => {
-            util::bootstrap!("unable to read directory: {}", e);
+            tracing::warn!(error = %e, "unable to read lib directory");
             return;
         },
         Ok(x) => x,
@@ -20,13 +20,7 @@ pub async fn apply_patches(dir: impl AsRef<Path>) {
 
     let paths = {
         let mut paths = dir
-            .filter_map(|ent| {
-                if let Err(ref e) = ent {
-                    util::bootstrap!("reading dir entry: {}", e);
-                }
-
-                ent.ok()
-            })
+            .pipe(|s| log_and_discard_errors(s, "reading dir entry"))
             .map(|ent| ent.file_name())
             .filter(|name| name.as_bytes().ends_with(b".so"))
             .collect::<Vec<_>>()
@@ -38,11 +32,11 @@ pub async fn apply_patches(dir: impl AsRef<Path>) {
     };
 
     paths.into_iter().for_each(|path| {
-        util::bootstrap!("loading dynamic library: {:?}", path);
+        let _span = tracing::info_span!("loading dynamic library", path = ?path).entered();
 
         match unsafe { libloading::Library::new(path) } {
-            Ok(_) => util::bootstrap!("loaded ok"),
-            Err(e) => util::bootstrap!("failed loading: {}", e),
+            Ok(_) => tracing::info!("loaded ok"),
+            Err(e) => tracing::error!(error = %e, "failed loading"),
         }
     });
 }

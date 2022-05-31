@@ -10,7 +10,10 @@ extern crate core;
 
 use eyre::Result;
 use packed_struct::PackedStructSlice;
-use smol::stream::StreamExt;
+use smol::stream::{
+    Stream,
+    StreamExt,
+};
 use structopt::StructOpt as _;
 use tap::Pipe;
 
@@ -26,6 +29,7 @@ use lunarrelay::{
         CRCWrap,
         Header,
         Message,
+        OpaqueBytes,
     },
     net,
     net::{
@@ -68,9 +72,6 @@ fn main() -> Result<()> {
 
     let options: Options = Options::from_args();
 
-    #[cfg(unix)]
-    smol::block_on(lunarrelay::util::dynload::apply_patches(&options.lib_dir));
-
     let log_stream = trace::init()?;
 
     tracing::info!(
@@ -82,6 +83,9 @@ fn main() -> Result<()> {
         using_rustc = build::RUSTC_COMMIT_HASH,
         "tracing subsystem initialized"
     );
+
+    #[cfg(unix)]
+    smol::block_on(util::dynload::apply_patches(&options.lib_dir));
 
     let serial = tracing::info_span!("opening serial port").in_scope(
         || -> Result<async_compat::Compat<tokio_serial::SerialStream>> {
@@ -118,40 +122,7 @@ fn main() -> Result<()> {
                 relay::serial_relay(uplink_stream.clone(), &packet_rpc).await.for_each(|_| {});
 
             // TODO: dumb test format
-            let log_messages =
-                log_stream.pipe(|s| futures::stream::StreamExt::chunks(s, 5)).map(|evts| {
-                    let payload = evts
-                        .into_iter()
-                        .map(|evt| {
-                            evt.args
-                                .into_iter()
-                                .map(|(name, value)| format!("{}={}", name, value))
-                                .intersperse(",".to_owned())
-                                .collect::<String>()
-                        })
-                        .intersperse(":".to_owned())
-                        .collect::<String>();
-
-                    let payload = payload.as_bytes().iter().map(|x| *x).collect::<Vec<u8>>();
-
-                    let wrapped_payload = CRCWrap::<Vec<u8>>::new(payload);
-
-                    Message {
-                        header:  Header {
-                            magic:       Default::default(),
-                            destination: Destination::Ground,
-                            timestamp:   MissionEpoch::now(),
-                            seq:         0,
-                            ty:          Type {
-                                ack:                   true,
-                                acked_message_invalid: false,
-                                target:                Target::Frontend,
-                                kind:                  Kind::Ping,
-                            },
-                        },
-                        payload: wrapped_payload,
-                    }
-                });
+            let log_messages = dummy_log_downlink(log_stream);
 
             let downlink_collected = uplink_stream
                 .race(all_serial_packets)
@@ -182,7 +153,7 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-pub fn compress(message: &mut Vec<u8>) -> Result<Vec<u8>> {
+fn compress(message: &mut Vec<u8>) -> Result<Vec<u8>> {
     let compressed_bytes = {
         let mut out = vec![];
 
@@ -199,4 +170,42 @@ pub fn compress(message: &mut Vec<u8>) -> Result<Vec<u8>> {
     };
 
     Ok(compressed_bytes)
+}
+
+fn dummy_log_downlink(
+    s: impl Stream<Item = lunarrelay::tracing::Event>,
+) -> impl Stream<Item = Message<OpaqueBytes>> {
+    s.pipe(|s| futures::stream::StreamExt::chunks(s, 5)).map(|evts| {
+        let payload = evts
+            .into_iter()
+            .map(|evt| {
+                evt.args
+                    .into_iter()
+                    .map(|(name, value)| format!("{}={}", name, value))
+                    .intersperse(",".to_owned())
+                    .collect::<String>()
+            })
+            .intersperse(":".to_owned())
+            .collect::<String>();
+
+        let payload = payload.as_bytes().iter().map(|x| *x).collect::<Vec<u8>>();
+
+        let wrapped_payload = CRCWrap::<Vec<u8>>::new(payload);
+
+        Message {
+            header:  Header {
+                magic:       Default::default(),
+                destination: Destination::Ground,
+                timestamp:   MissionEpoch::now(),
+                seq:         0,
+                ty:          Type {
+                    ack:                   true,
+                    acked_message_invalid: false,
+                    target:                Target::Frontend,
+                    kind:                  Kind::Ping,
+                },
+            },
+            payload: wrapped_payload,
+        }
+    })
 }
