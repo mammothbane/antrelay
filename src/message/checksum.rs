@@ -46,7 +46,7 @@ macro_rules! impl_checksum {
         #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, ::serde::Serialize, ::serde::Deserialize)]
         $vis struct $name;
 
-        impl $crate::message::util::Checksum for $name {
+        impl $crate::message::Checksum for $name {
             type Output = $ty;
 
             #[inline]

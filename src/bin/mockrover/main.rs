@@ -4,9 +4,12 @@
 
 use std::{
     net::Shutdown,
-    sync::atomic::{
-        AtomicU8,
-        Ordering,
+    sync::{
+        atomic::{
+            AtomicU8,
+            Ordering,
+        },
+        Arc,
     },
     time::Duration,
 };
@@ -34,9 +37,10 @@ use lunarrelay::{
         Message,
         OpaqueBytes,
     },
+    net::Datagram,
+    signals,
     trace_catch,
     util,
-    util::net::Datagram,
     MissionEpoch,
 };
 
@@ -61,7 +65,7 @@ fn main() -> eyre::Result<()> {
         ..
     } = Options::from_args();
 
-    let done = util::signals()?;
+    let done = signals::signals()?;
 
     tracing::info!("registered signals");
 
@@ -79,8 +83,8 @@ fn main() -> eyre::Result<()> {
 
         smol::spawn(async move {
             loop {
-                trace_catch!(send_serial(serial_port), "sending dummy serial data");
-                smol::Timer::after(Duration::from_secs(1));
+                trace_catch!(send_serial(serial_port.clone()).await, "sending dummy serial data");
+                smol::Timer::after(Duration::from_secs(1)).await;
             }
         })
         .detach();
@@ -99,48 +103,52 @@ async fn send_serial(path: String) -> eyre::Result<()> {
     let serial_stream = {
         let compat_stream =
             Compat::new(async { tokio_serial::SerialStream::open(&builder) }).await?;
-        Mutex::new(Compat::new(compat_stream))
+        Arc::new(Mutex::new(Compat::new(compat_stream)))
     };
 
-    let seq = AtomicU8::new(0);
+    let seq = Arc::new(AtomicU8::new(0));
 
     smol::Timer::interval(Duration::from_secs(5))
         .then(|_inst| {
-            let serial_stream = &serial_stream;
+            let serial_stream = serial_stream.clone();
 
-            Box::pin(async move {
-                let mut serial_stream = serial_stream.lock().await;
+            Box::pin({
+                let seq = seq.clone();
 
-                let wrapped_payload = CRCWrap::<Vec<u8>>::new(b"test".to_vec());
+                async move {
+                    let mut serial_stream = serial_stream.lock().await;
 
-                let message = Message {
-                    header:  Header {
-                        magic:       Default::default(),
-                        destination: Destination::CentralStation,
-                        timestamp:   MissionEpoch::now(),
-                        seq:         seq.fetch_add(1, Ordering::Acquire),
-                        ty:          Type {
-                            ack:                   false,
-                            acked_message_invalid: false,
-                            target:                Target::CentralStation,
-                            kind:                  Kind::VoltageSupplied,
+                    let wrapped_payload = CRCWrap::<Vec<u8>>::new(b"test".to_vec());
+
+                    let message = Message {
+                        header:  Header {
+                            magic:       Default::default(),
+                            destination: Destination::CentralStation,
+                            timestamp:   MissionEpoch::now(),
+                            seq:         seq.fetch_add(1, Ordering::Acquire),
+                            ty:          Type {
+                                ack:                   false,
+                                acked_message_invalid: false,
+                                target:                Target::CentralStation,
+                                kind:                  Kind::VoltageSupplied,
+                            },
                         },
-                    },
-                    payload: wrapped_payload,
-                };
+                        payload: wrapped_payload,
+                    };
 
-                let message = message.pack_to_vec()?;
+                    let message = message.pack_to_vec()?;
 
-                let encoded = {
-                    let mut ret = cobs::encode_vec(&message);
-                    ret.push(0);
-                    ret
-                };
+                    let encoded = {
+                        let mut ret = cobs::encode_vec(&message);
+                        ret.push(0);
+                        ret
+                    };
 
-                serial_stream.write_all(&encoded).await?;
-                tracing::debug!("wrote to serial port");
+                    serial_stream.write_all(&encoded).await?;
+                    tracing::debug!("wrote to serial port");
 
-                Ok(()) as eyre::Result<()>
+                    Ok(()) as eyre::Result<()>
+                }
             })
         })
         .try_for_each(|result| result)

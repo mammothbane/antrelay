@@ -11,6 +11,10 @@ mod mission_epoch;
 
 pub mod build;
 pub mod message;
+pub mod net;
+pub mod packet_io;
+pub mod signals;
+pub mod tracing;
 pub mod util;
 
 pub use mission_epoch::{

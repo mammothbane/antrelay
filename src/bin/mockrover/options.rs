@@ -1,4 +1,4 @@
-use lunarrelay::util::net::Datagram;
+use lunarrelay::net::Datagram;
 
 type Address = <crate::Socket as Datagram>::Address;
 

@@ -7,7 +7,9 @@ use tracing_subscriber::{
     EnvFilter,
 };
 
-pub fn init() -> eyre::Result<impl Stream<Item = lunarrelay::util::Event>> {
+use lunarrelay::bootstrap;
+
+pub fn init() -> eyre::Result<impl Stream<Item = lunarrelay::tracing::Event>> {
     let stderr_layer = tracing_subscriber::fmt::layer()
         .with_writer(std::io::stderr)
         .with_span_events(FmtSpan::CLOSE);
@@ -24,10 +26,13 @@ pub fn init() -> eyre::Result<impl Stream<Item = lunarrelay::util::Event>> {
 
     let (tx, rx) = smol::channel::unbounded();
 
+    let level_filter = mk_level_filter();
+    bootstrap!("enabling tracing with filter directive: {}", level_filter);
+
     tracing_subscriber::registry()
-        .with(mk_level_filter())
+        .with(level_filter)
         .with(stderr_layer)
-        .with(lunarrelay::util::EventStream::new(tx))
+        .with(lunarrelay::tracing::EventStream::new(tx))
         .init();
 
     Ok(rx)

@@ -27,29 +27,27 @@ use lunarrelay::{
         Header,
         Message,
     },
+    net,
+    net::{
+        receive_packets,
+        DEFAULT_BACKOFF,
+    },
+    packet_io::PacketIO,
+    signals,
     util::{
         self,
         log_and_discard_errors,
-        net::{
-            receive_packets,
-            DEFAULT_BACKOFF,
-        },
-        send_packets,
         splittable_stream,
     },
     MissionEpoch,
 };
 
 pub use crate::options::Options;
-use crate::{
-    packet_io::PacketIO,
-    relay::deserialize_messages,
-};
+use crate::relay::deserialize_messages;
 
 pub mod trace;
 
 mod options;
-mod packet_io;
 mod relay;
 
 #[cfg(windows)]
@@ -76,7 +74,7 @@ fn main() -> Result<()> {
     let log_stream = trace::init()?;
 
     tracing::info!(
-        downlink_ty = ?lunarrelay::message::crc_wrap::log::Type::Startup,
+        downlink_ty = ?lunarrelay::message::payload::log::Type::Startup,
         application = build::PACKAGE,
         version = build::VERSION,
         build_commit = build::COMMIT_HASH,
@@ -99,7 +97,7 @@ fn main() -> Result<()> {
     )?;
     let (serial_read, serial_write) = smol::io::split(serial);
 
-    let signal_done = util::signals()?;
+    let signal_done = signals::signals()?;
 
     let packet_rpc =
         PacketIO::new(smol::io::BufReader::new(serial_read), serial_write, signal_done.clone());
@@ -169,10 +167,10 @@ fn main() -> Result<()> {
                 .downlink_addresses
                 .into_iter()
                 .map(move |addr| {
-                    send_packets::<Socket>(
+                    net::send_packets::<Socket>(
                         addr,
                         downlink_split.clone(),
-                        util::net::DEFAULT_BACKOFF.clone(),
+                        lunarrelay::net::DEFAULT_BACKOFF.clone(),
                     )
                 })
                 .pipe(futures::future::join_all);

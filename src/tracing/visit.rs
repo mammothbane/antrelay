@@ -9,7 +9,7 @@ use tracing::{
     Event,
 };
 
-use crate::util::tracing::Values;
+use crate::tracing::Values;
 
 pub trait RetrieveValues {
     fn values(&self) -> Values;
@@ -38,7 +38,7 @@ struct Visitor(Values);
 macro_rules! imp {
     ($name:ident, $ty:ty, $expr:expr) => {
         fn $name(&mut self, field: &::tracing::field::Field, value: $ty) {
-            self.0.insert(field.name(), $crate::util::tracing::Value::from($expr(value)));
+            self.0.insert(field.name(), $crate::tracing::Value::from($expr(value)));
         }
     };
 }

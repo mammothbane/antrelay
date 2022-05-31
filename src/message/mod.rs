@@ -1,9 +1,16 @@
+pub mod checksum;
 pub mod crc_wrap;
 pub mod header;
-mod util;
+mod header_packet;
+mod magic_value;
+pub mod payload;
 
+pub use checksum::Checksum;
 pub use header::Header;
-pub use util::*;
+pub use header_packet::HeaderPacket;
+pub use magic_value::MagicValue;
+
+pub type OpaqueBytes = Vec<u8>;
 
 crate::impl_checksum!(pub StandardCRC, u8, crc::CRC_8_SMBUS);
 

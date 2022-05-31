@@ -14,13 +14,13 @@ use smol::{
 };
 use tap::Pipe;
 
-use crate::packet_io::PacketIO;
 use lunarrelay::{
     message::{
         crc_wrap::Ack,
         Message,
         OpaqueBytes,
     },
+    packet_io::PacketIO,
     util,
 };
 

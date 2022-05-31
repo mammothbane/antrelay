@@ -15,7 +15,7 @@ use tracing_subscriber::{
     Layer,
 };
 
-use crate::util::tracing::{
+use crate::tracing::{
     RetrieveValues,
     Values,
 };
@@ -70,8 +70,7 @@ macro_rules! record_span {
         fn $name(&self, id: $idty, ctx: Context<'_, S>) {
             let _: Option<_> = try {
                 let meta = ctx.metadata(&id)?;
-                let values =
-                    ctx.span(&id)?.extensions().get::<$crate::util::tracing::Values>()?.clone();
+                let values = ctx.span(&id)?.extensions().get::<$crate::tracing::Values>()?.clone();
 
                 self.0
                     .try_send(Event {

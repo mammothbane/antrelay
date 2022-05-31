@@ -5,28 +5,8 @@ use smol::stream::{
     StreamExt,
 };
 
-pub mod net;
-mod tracing;
 #[cfg(unix)]
-mod unix;
-
-#[cfg(windows)]
-mod windows;
-
-#[cfg(windows)]
-pub use windows::signals;
-
-#[cfg(unix)]
-pub use unix::{
-    dynload,
-    remove_and_bind,
-    signals,
-    uds_connect,
-};
-
-pub use net::send_packets;
-
-pub use self::tracing::*;
+pub mod dynload;
 
 #[inline]
 pub async fn either<T, U>(

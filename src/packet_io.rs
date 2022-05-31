@@ -15,9 +15,9 @@ use smol::{
 };
 use tap::Pipe;
 
-use lunarrelay::{
+use crate::{
     message::{
-        crc_wrap::Ack,
+        payload::Ack,
         CRCWrap,
         Message,
         OpaqueBytes,
