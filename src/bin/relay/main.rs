@@ -13,7 +13,8 @@ use structopt::StructOpt as _;
 
 use lunarrelay::{
     build,
-    net,
+    net::DEFAULT_BACKOFF,
+    relay,
     signals,
     util,
 };
@@ -61,30 +62,29 @@ fn main() -> Result<()> {
             #[cfg(unix)]
             util::dynload::apply_patches(&options.lib_dir).await;
 
-            let (read, write) =
-                lunarrelay::relay::connect_serial(options.serial_port, options.baud).await?;
+            let (read, write) = relay::connect_serial(options.serial_port, options.baud).await?;
 
-            let uplink = lunarrelay::relay::uplink_stream::<Socket>(
+            let uplink = relay::uplink_stream::<Socket>(
                 options.uplink_address.clone(),
-                net::DEFAULT_BACKOFF.clone(),
+                DEFAULT_BACKOFF.clone(),
                 1024,
             )
             .await;
 
-            let downlink_packets = lunarrelay::relay::relay_graph::<Socket>(
+            let downlink_packets = relay::graph::<Socket>(
                 signal_done,
                 read,
                 write,
-                lunarrelay::relay::SERIAL_REQUEST_BACKOFF.clone(),
+                relay::SERIAL_REQUEST_BACKOFF.clone(),
                 uplink,
-                log_stream,
+                relay::dummy_log_downlink(log_stream),
             )
             .await;
 
-            lunarrelay::relay::send_downlink::<Socket>(
+            relay::send_downlink::<Socket>(
                 downlink_packets,
                 options.downlink_addresses.clone(),
-                net::DEFAULT_BACKOFF.clone(),
+                DEFAULT_BACKOFF.clone(),
             )
             .await;
 
