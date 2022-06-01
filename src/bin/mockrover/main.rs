@@ -44,11 +44,13 @@ use lunarrelay::{
     },
     net::{
         receive_packets,
+        socket_stream,
         Datagram,
+        SocketMode,
         DEFAULT_BACKOFF,
     },
     signals,
-    trace_unwrap,
+    stream_unwrap,
     tracing::Event,
     MissionEpoch,
 };
@@ -80,7 +82,7 @@ fn main() -> eyre::Result<()> {
     let (tripwire, trigger) = stream_cancel::Tripwire::new();
 
     smol::spawn(async move {
-        done.recv().await;
+        done.recv().await.unwrap_err();
         tracing::info!("interrupted");
         tripwire.cancel();
     })
@@ -96,7 +98,7 @@ fn main() -> eyre::Result<()> {
             .pipe(futures::future::join_all);
 
         let serial_stream = send_serial(serial_port).await?;
-        let serial_fut = serial_stream.pipe(trace_unwrap!("handling serial")).for_each(|_| ());
+        let serial_fut = serial_stream.pipe(stream_unwrap!("handling serial")).for_each(|_| ());
 
         smol::future::zip(downlink_fut, serial_fut).await;
 
@@ -164,9 +166,11 @@ async fn log_all(
     addr: <Socket as Datagram>::Address,
     done: impl Future<Output = bool>,
 ) -> eyre::Result<()> {
-    let mut buf = vec![0; 4096];
+    let downlink_sockets =
+        socket_stream::<Socket>(addr.clone(), DEFAULT_BACKOFF.clone(), SocketMode::Bind)
+            .pipe(stream_unwrap!("connecting to downlink socket"));
 
-    receive_packets::<Socket>(addr.clone(), DEFAULT_BACKOFF.clone())
+    receive_packets(downlink_sockets)
         .take_until_if(done)
         .map(|packet| {
             tracing::debug!(length = packet.len(), "packet received");
@@ -175,18 +179,18 @@ async fn log_all(
             brotli::BrotliDecompress(&mut &packet[..], &mut decompressed)?;
             Ok(decompressed) as eyre::Result<Vec<u8>>
         })
-        .pipe(trace_unwrap!("decompressing message"))
+        .pipe(stream_unwrap!("decompressing message"))
         .map(|decompressed| {
             <Message<OpaqueBytes> as PackedStructSlice>::unpack_from_slice(&decompressed)
         })
-        .pipe(trace_unwrap!("unpacking message"))
+        .pipe(stream_unwrap!("unpacking message"))
         .map(|msg| {
             let payload = bincode::deserialize::<Event>(&msg.payload.as_ref())?;
             tracing::debug!(msg.header = %msg.header.display(), %payload, "decoded message");
 
             Ok(()) as eyre::Result<()>
         })
-        .pipe(trace_unwrap!("deserializing message payload"))
+        .pipe(stream_unwrap!("deserializing message payload"))
         .for_each(|_| {})
         .await;
 

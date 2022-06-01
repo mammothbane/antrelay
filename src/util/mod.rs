@@ -8,6 +8,7 @@ use smol::stream::{
     Stream,
     StreamExt,
 };
+use tracing::Span;
 
 use crate::message::Message;
 
@@ -15,6 +16,7 @@ use crate::message::Message;
 pub mod dynload;
 
 #[inline]
+#[tracing::instrument(skip_all)]
 pub async fn either<T, U>(
     t: impl Future<Output = T>,
     u: impl Future<Output = U>,
@@ -24,6 +26,7 @@ pub async fn either<T, U>(
 }
 
 // TODO: task to future
+#[tracing::instrument(skip(s))]
 pub fn splittable_stream<S>(s: S, buffer: usize) -> impl Stream<Item = S::Item> + Clone + Unpin
 where
     S: Stream + Send + 'static,
@@ -36,11 +39,14 @@ where
         (tx, rx)
     };
 
+    let span = Span::current();
+
     smol::spawn(async move {
         let tx = tx;
+        let span = span;
 
         s.for_each(|s| {
-            trace_catch!(tx.try_broadcast(s), "broadcasting to splittable stream");
+            trace_catch!(parent: &span, tx.try_broadcast(s), "broadcasting to splittable stream");
         })
         .await;
     })
@@ -50,6 +56,7 @@ where
 }
 
 #[inline]
+#[tracing::instrument(skip_all)]
 pub fn log_and_discard_errors<T, E>(
     s: impl Stream<Item = Result<T, E>>,
     msg: &'static str,
@@ -65,7 +72,7 @@ where
 }
 
 #[macro_export]
-macro_rules! trace_unwrap {
+macro_rules! stream_unwrap {
     ($($args:tt)*) => {
         |s| $crate::util::log_and_discard_errors(s, $($args)*)
     };
@@ -80,6 +87,12 @@ macro_rules! bootstrap {
 
 #[macro_export]
 macro_rules! trace_catch {
+    (parent: $parent:expr, $val:expr, $($rest:tt)*) => {
+        if let Err(ref e) = $val {
+            ::tracing::error!(parent: $parent, error = %e, $($rest)*);
+        }
+    };
+
     ($val:expr, $($rest:tt)*) => {
         if let Err(ref e) = $val {
             ::tracing::error!(error = %e, $($rest)*);
@@ -91,6 +104,7 @@ pub use bootstrap;
 pub use trace_catch;
 
 #[inline]
+#[tracing::instrument(skip_all, level = "debug")]
 pub fn deserialize_messages<T>(
     s: impl Stream<Item = Vec<u8>>,
 ) -> impl Stream<Item = PackingResult<Message<T>>>
@@ -100,6 +114,7 @@ where
     s.map(|msg| <Message<T> as PackedStructSlice>::unpack_from_slice(&msg))
 }
 
+#[tracing::instrument(skip_all, level = "debug")]
 pub fn brotli_compress(message: &mut Vec<u8>) -> eyre::Result<Vec<u8>> {
     let compressed_bytes = {
         let mut out = vec![];

@@ -13,17 +13,10 @@ use smol::stream::StreamExt;
 use std::sync::Arc;
 use structopt::StructOpt as _;
 
-use lunarrelay::{
-    build,
-    net::DEFAULT_BACKOFF,
-    packet_io::PacketIO,
-    relay,
-    signals,
-    util,
-    util::splittable_stream,
-};
+use lunarrelay::{build, net, net::DEFAULT_BACKOFF, packet_io::PacketIO, relay, signals, stream_unwrap, util, util::splittable_stream};
 use stream_cancel::StreamExt as _;
 use tap::Pipe;
+use lunarrelay::net::SocketMode;
 
 pub use crate::options::Options;
 
@@ -78,9 +71,11 @@ fn main() -> Result<()> {
             })
             .detach();
 
-            let uplink = relay::uplink_stream::<Socket>(
-                options.uplink_address.clone(),
-                DEFAULT_BACKOFF.clone(),
+            let uplink_sockets = net::socket_stream::<Socket>(options.uplink_address, DEFAULT_BACKOFF.clone(), SocketMode::Connect)
+                .pipe(stream_unwrap!("connecting to uplink socket"));
+
+            let uplink = relay::uplink_stream(
+                uplink_sockets,
                 1024,
             )
             .await
@@ -110,10 +105,12 @@ fn main() -> Result<()> {
             )
             .await;
 
+            let downlink_sockets = options.downlink_addresses.iter().cloned()
+                .map(|addr| net::socket_stream::<Socket>(addr, DEFAULT_BACKOFF.clone(), SocketMode::Connect).pipe(stream_unwrap!("connecting to downlink socket")));
+
             let downlink_future = relay::send_downlink::<Socket>(
                 downlink_packets,
-                options.downlink_addresses.clone(),
-                DEFAULT_BACKOFF.clone(),
+                downlink_sockets,
             );
 
             smol::future::zip(downlink_future, serial_acks).await;

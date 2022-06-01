@@ -1,10 +1,10 @@
 use std::{
     error::Error,
     fmt::Display,
-    net::Shutdown,
-    sync::Arc,
     time::Duration,
 };
+use std::cell::RefCell;
+use std::sync::Arc;
 
 use backoff::backoff::Backoff;
 use smol::stream::{
@@ -13,9 +13,9 @@ use smol::stream::{
 };
 use tap::Pipe;
 
-use crate::util;
+use crate::{util};
 
-pub use self::datagram::{
+pub use datagram::{
     Datagram,
     DatagramReceiver,
     DatagramSender,
@@ -26,14 +26,21 @@ mod datagram;
 #[cfg(unix)]
 mod unix;
 
-pub fn socket_connects<Socket>(
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum SocketMode {
+    Connect,
+    Bind,
+}
+
+pub fn socket_stream<Socket>(
     address: Socket::Address,
-    backoff: impl Backoff + Clone,
-) -> impl Stream<Item = Result<Socket, Socket::Error>> + Unpin
-where
-    Socket: Datagram,
-    Socket::Address: Clone,
-    Socket::Error: Display,
+    backoff: impl Backoff + Clone + Send + Sync,
+    mode: SocketMode,
+) -> impl Stream<Item = Result<Socket, Socket::Error>> + Unpin + Send
+    where
+        Socket: Datagram,
+        Socket::Address: Clone + Send + Sync,
+        Socket::Error: Display,
 {
     smol::stream::unfold(backoff, move |backoff| {
         let address = address.clone();
@@ -41,48 +48,27 @@ where
         Box::pin(async move {
             let result = backoff::future::retry_notify(
                 backoff.clone(),
-                || async { Socket::connect(&address).await.map_err(backoff::Error::transient) },
+                || async {
+                    match mode {
+                        SocketMode::Connect => Socket::connect(&address).await,
+                        SocketMode::Bind => Socket::bind(&address).await,
+                    }
+                    .map_err(backoff::Error::transient)
+                },
                 |e, dur| {
-                    tracing::error!(error = %e, backoff_dur = ?dur, "connecting to socket");
+                    tracing::error!(error = %e, backoff_dur = ?dur, ?mode, "connecting to socket");
                 },
             )
-            .await;
+                .await;
 
             Some((result, backoff))
         })
     })
 }
 
-pub fn socket_binds<Socket>(
-    address: Socket::Address,
-    backoff: impl Backoff + Clone,
-) -> impl Stream<Item = Result<Socket, Socket::Error>> + Unpin
-where
-    Socket: Datagram,
-    Socket::Address: Clone + 'static,
-    Socket::Error: Display,
-{
-    smol::stream::unfold(backoff, move |backoff| {
-        let address = address.clone();
-
-        Box::pin({
-            async move {
-                let result = backoff::future::retry_notify(
-                    backoff.clone(),
-                    || async { Socket::bind(&address).await.map_err(backoff::Error::transient) },
-                    |e, dur| tracing::error!(error = %e, backoff_duration = ?dur, "connecting to socket"),
-                )
-                    .await;
-
-                Some((result, backoff))
-            }
-        })
-    })
-}
-
 #[tracing::instrument(skip_all)]
 pub fn receive_packets<Socket>(
-    sockets: impl Stream<Item = Socket>,
+    sockets: impl Stream<Item = Socket> + Unpin,
 ) -> impl Stream<Item = Vec<u8>> + Unpin
 where
     Socket: DatagramReceiver,
@@ -105,58 +91,34 @@ where
 
 #[tracing::instrument(skip_all)]
 pub async fn send_packets<Socket>(
-    sockets: impl Stream<Item = Result<Socket, Socket::Error>>,
+    sockets: impl Stream<Item = Socket> + Unpin + 'static,
     packets: impl Stream<Item = Vec<u8>> + StreamExt + Unpin,
-) where
-    Socket: DatagramSender,
+) -> impl Stream<Item = Result<(), Socket::Error>>
+    where
+    Socket: DatagramSender + 'static,
     Socket::Error: Error,
 {
-    sockets.flat_map(|socket| packets.then(|pkt| socket.send(&pkt))).try_for_each();
+    packets
+        .pipe(|s| futures::StreamExt::scan(s, (Arc::new(RefCell::new(sockets)), Arc::new(RefCell::new(None))), |(sockets, sock), pkt| {
+            let sock = sock.clone();
+            let sockets = sockets.clone();
 
-    let mut send_stream = packets.then(|pkt| {
-        let sock = sock.clone();
+            async move {
+                let sock = sock;
+                let sockets = sockets;
 
-        Box::pin(async move {
-            let pkt = pkt;
+                let mut sock = sock.borrow_mut();
+                let mut sockets = sockets.borrow_mut();
 
-            let sock = sock.borrow();
-            let sock = sock.as_ref().unwrap();
-
-            sock.send(&pkt).await
-        })
-    });
-
-    loop {
-        let sock_result = sockets.next().await?;
-
-        match sock_result {
-            Ok(s) => {
-                {
-                    let sock = sock.borrow();
-                    if let Some(sock) = sock.as_ref() {
-                        crate::trace_catch!(sock.shutdown(Shutdown::Both), "shutting down socket");
-                    }
+                if sock.is_none() {
+                    *sock = sockets.next().await.map(Arc::new);
                 }
 
-                sock.replace(Some(s))
-            },
-            Err(_) => unreachable!(),
-        };
+                let result = sock.as_mut()?.send(&pkt).await.map(|_| ());
 
-        let send_result = send_stream.try_for_each(|result| result.map(|_| ())).await;
-
-        crate::trace_catch!(send_result, "socket send failed");
-
-        if send_result.is_ok() {
-            tracing::info!("source stream closed, shutting down");
-            break;
-        }
-    }
-
-    let sock = sock.borrow();
-    if let Some(sock) = sock.as_ref() {
-        crate::trace_catch!(sock.shutdown(Shutdown::Both), "shutting down socket");
-    }
+                Some(result)
+            }
+        }))
 }
 
 lazy_static::lazy_static! {

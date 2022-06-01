@@ -4,7 +4,6 @@ use std::{
 };
 
 use async_std::prelude::Stream;
-use backoff::backoff::Backoff;
 use smol::stream::StreamExt;
 use tap::Pipe;
 
@@ -47,23 +46,23 @@ lazy_static::lazy_static! {
         .build();
 }
 
+#[tracing::instrument(skip(socket_stream))]
 pub async fn uplink_stream<Socket>(
-    address: Socket::Address,
-    backoff: impl Backoff + Clone + Send + Sync + 'static,
+    socket_stream: impl Stream<Item = Socket> + Unpin + Send + 'static,
     buffer: usize,
 ) -> impl Stream<Item = Message<OpaqueBytes>>
 where
     Socket: DatagramReceiver + Send + Sync + 'static,
-    Socket::Address: Send + Clone + Sync,
     Socket::Error: Error + Send + Sync + 'static,
 {
-    receive_packets::<Socket>(address, backoff)
+    receive_packets(socket_stream)
         .pipe(deserialize_messages)
         .pipe(|s| log_and_discard_errors(s, "deserializing messages"))
         .pipe(|s| splittable_stream(s, buffer))
 }
 
 // TODO: use actual log format
+#[tracing::instrument(skip(s))]
 pub fn dummy_log_downlink(
     s: impl Stream<Item = crate::tracing::Event>,
 ) -> impl Stream<Item = Message<OpaqueBytes>> {

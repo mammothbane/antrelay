@@ -32,6 +32,7 @@ pub async fn connect_serial(
     Ok(smol::io::split(stream))
 }
 
+#[tracing::instrument(skip_all)]
 pub async fn relay_uplink_to_serial<'a, 'u, R, W>(
     uplink: impl Stream<Item = Message<OpaqueBytes>> + 'u,
     packetio: Arc<PacketIO<R, W>>,
