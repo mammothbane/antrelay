@@ -6,13 +6,14 @@ use std::{
 use async_std::prelude::Stream;
 use smol::stream::StreamExt;
 use tap::Pipe;
+use tracing::Span;
 
 use crate::{
     message::{
         header::{
             Destination,
             Kind,
-            Target,
+            Source,
             Type,
         },
         CRCWrap,
@@ -24,9 +25,9 @@ use crate::{
         receive_packets,
         DatagramReceiver,
     },
+    stream_unwrap,
     util::{
         deserialize_messages,
-        log_and_discard_errors,
         splittable_stream,
     },
     MissionEpoch,
@@ -55,9 +56,11 @@ where
     Socket: DatagramReceiver + Send + Sync + 'static,
     Socket::Error: Error + Send + Sync + 'static,
 {
+    let span = Span::current();
+
     receive_packets(socket_stream)
         .pipe(deserialize_messages)
-        .pipe(|s| log_and_discard_errors(s, "deserializing messages"))
+        .pipe(stream_unwrap!(parent: &span, "deserializing messages"))
         .pipe(|s| splittable_stream(s, buffer))
 }
 
@@ -66,6 +69,8 @@ where
 pub fn dummy_log_downlink(
     s: impl Stream<Item = crate::tracing::Event>,
 ) -> impl Stream<Item = Message<OpaqueBytes>> {
+    let span = Span::current();
+
     s.pipe(|s| futures::stream::StreamExt::chunks(s, 5))
         .map(|evts| -> eyre::Result<Message<OpaqueBytes>> {
             let payload = bincode::serialize(&evts)?;
@@ -80,12 +85,12 @@ pub fn dummy_log_downlink(
                     ty:          Type {
                         ack:                   true,
                         acked_message_invalid: false,
-                        target:                Target::Frontend,
+                        source:                Source::Frontend,
                         kind:                  Kind::Ping,
                     },
                 },
                 payload: wrapped_payload,
             })
         })
-        .pipe(|s| log_and_discard_errors(s, "serializing log payload"))
+        .pipe(stream_unwrap!(parent: &span, "serializing log payload"))
 }

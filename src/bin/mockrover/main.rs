@@ -34,7 +34,7 @@ use lunarrelay::{
         header::{
             Destination,
             Kind,
-            Target,
+            Source,
             Type,
         },
         CRCWrap,
@@ -98,7 +98,10 @@ fn main() -> eyre::Result<()> {
             .pipe(futures::future::join_all);
 
         let serial_stream = send_serial(serial_port).await?;
-        let serial_fut = serial_stream.pipe(stream_unwrap!("handling serial")).for_each(|_| ());
+        let serial_fut = serial_stream
+            .pipe(stream_unwrap!("handling serial"))
+            .take_until_if(trigger)
+            .for_each(|_| ());
 
         smol::future::zip(downlink_fut, serial_fut).await;
 
@@ -137,7 +140,7 @@ async fn send_serial(path: String) -> eyre::Result<impl Stream<Item = eyre::Resu
                         ty:          Type {
                             ack:                   false,
                             acked_message_invalid: false,
-                            target:                Target::CentralStation,
+                            source:                Source::Rover,
                             kind:                  Kind::VoltageSupplied,
                         },
                     },
@@ -153,7 +156,7 @@ async fn send_serial(path: String) -> eyre::Result<impl Stream<Item = eyre::Resu
                 };
 
                 serial_stream.write_all(&encoded).await?;
-                tracing::debug!("wrote to serial port");
+                tracing::trace!("wrote to serial port");
 
                 Ok(()) as eyre::Result<()>
             }
@@ -173,7 +176,7 @@ async fn log_all(
     receive_packets(downlink_sockets)
         .take_until_if(done)
         .map(|packet| {
-            tracing::debug!(length = packet.len(), "packet received");
+            tracing::trace!(length = packet.len(), "packet received");
 
             let mut decompressed = vec![];
             brotli::BrotliDecompress(&mut &packet[..], &mut decompressed)?;
@@ -184,9 +187,13 @@ async fn log_all(
             <Message<OpaqueBytes> as PackedStructSlice>::unpack_from_slice(&decompressed)
         })
         .pipe(stream_unwrap!("unpacking message"))
-        .map(|msg| {
-            let payload = bincode::deserialize::<Event>(&msg.payload.as_ref())?;
-            tracing::debug!(msg.header = %msg.header.display(), %payload, "decoded message");
+        .map(|msg: Message<OpaqueBytes>| {
+            if msg.header.ty.kind == Kind::Ping && msg.header.ty.source == Source::Frontend {
+                let payload = bincode::deserialize::<Vec<Event>>(&msg.payload.as_ref())?;
+                tracing::debug!(msg.header = %msg.header.display(), ?payload);
+            } else {
+                tracing::debug!(msg.header = %msg.header.display(), payload.len = msg.payload.as_ref().len());
+            }
 
             Ok(()) as eyre::Result<()>
         })

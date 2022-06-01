@@ -15,6 +15,7 @@ use smol::{
 };
 use std::sync::Arc;
 use tap::Pipe;
+use tracing::Span;
 
 use crate::{
     message::{
@@ -24,8 +25,8 @@ use crate::{
         OpaqueBytes,
         UniqueId,
     },
+    stream_unwrap,
     trace_catch,
-    util::log_and_discard_errors,
 };
 
 #[derive(Debug)]
@@ -45,6 +46,7 @@ impl<R, W> PacketIO<R, W> {
         }
     }
 
+    #[tracing::instrument(skip_all, err, level = "debug")]
     pub async fn request<T>(&self, msg: &Message<T>) -> eyre::Result<ReqHandle<'_, R, W>>
     where
         W: AsyncWrite + Unpin,
@@ -69,6 +71,7 @@ impl<R, W> PacketIO<R, W> {
         })
     }
 
+    #[tracing::instrument(skip(self), level = "debug")]
     pub async fn read_packets(
         self: Arc<Self>,
         sentinel: u8,
@@ -77,7 +80,7 @@ impl<R, W> PacketIO<R, W> {
         R: AsyncBufRead + Unpin + 'static,
         W: 'static,
     {
-        let sentinel = sentinel;
+        let span = Span::current();
 
         smol::stream::unfold((Vec::with_capacity(8192), self.clone()), move |(mut buf, s)| {
             buf.truncate(0);
@@ -116,7 +119,7 @@ impl<R, W> PacketIO<R, W> {
             })
         })
         .fuse()
-        .pipe(|s| log_and_discard_errors(s, "reading message over serial"))
+        .pipe(stream_unwrap!(parent: &span, "reading message over serial"))
         .map(move |msg| {
             tracing::debug!(msg.header = %msg.header.display(), %msg.payload, "message from serial");
 

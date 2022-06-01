@@ -49,19 +49,18 @@ impl Header {
     pub fn display(&self) -> String {
         let mut out = String::new();
 
-        if self.ty.ack {
-            out.push_str("[ack] ");
-        }
-
-        if self.ty.acked_message_invalid {
-            out.push_str("[invalid] ")
-        }
+        let ty_str = format!(
+            "{:?}{}{}",
+            self.ty.kind,
+            self.ty.ack.then(|| "[Ack]").unwrap_or(""),
+            self.ty.acked_message_invalid.then(|| "[Invalid]").unwrap_or(""),
+        );
 
         out.push_str(&format!(
-            "{:?}/{:?} to {:?} @ {} [{}]",
-            self.ty.kind,
+            "{:?} {:?} -> {:?} @ {} [{}]",
+            ty_str,
+            self.ty.source,
             self.destination,
-            self.ty.target,
             self.timestamp.conv::<chrono::DateTime<chrono::Utc>>(),
             self.seq,
         ));
@@ -89,7 +88,7 @@ pub struct Type {
     pub acked_message_invalid: bool,
 
     #[packed_field(size_bits = "2", ty = "enum")]
-    pub target: Target,
+    pub source: Source,
 
     #[packed_field(size_bits = "4", ty = "enum")]
     pub kind: Kind,
@@ -99,7 +98,7 @@ impl Type {
     pub const PONG: Self = Self {
         ack:                   true,
         acked_message_invalid: false,
-        target:                Target::Frontend,
+        source:                Source::Frontend,
         kind:                  Kind::Ping,
     };
 }
@@ -107,10 +106,13 @@ impl Type {
 /// The target of this *type* of message. A discriminant.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PrimitiveEnum_u8)]
 #[repr(u8)]
-pub enum Target {
+pub enum Source {
     Ant            = 0x0,
     CentralStation = 0x1,
     Frontend       = 0x2,
+    Rover          = 0x3,
+    Lander         = 0x4,
+    Ground         = 0x5,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PrimitiveEnum_u8)]
@@ -173,7 +175,7 @@ mod test {
             Type {
                 ack,
                 acked_message_invalid,
-                target,
+                source,
                 kind,
             }
         }
@@ -188,8 +190,8 @@ mod test {
         ]
     }
 
-    fn target_strategy() -> impl Strategy<Value = Target> {
-        prop_oneof![Just(Target::Ant), Just(Target::CentralStation), Just(Target::Frontend),]
+    fn target_strategy() -> impl Strategy<Value = Source> {
+        prop_oneof![Just(Source::Ant), Just(Source::CentralStation), Just(Source::Frontend),]
     }
 
     fn kind_strategy() -> impl Strategy<Value = Kind> {

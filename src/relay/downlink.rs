@@ -14,6 +14,7 @@ use crate::{
         DatagramReceiver,
         DatagramSender,
     },
+    stream_unwrap,
     util,
     util::splittable_stream,
 };
@@ -32,8 +33,9 @@ pub async fn send_downlink<Socket>(
         streams
             .into_iter()
             .map(|stream| {
-                let packets = split.clone();
-                crate::net::send_packets(stream, packets)
+                crate::net::send_packets(stream, split.clone())
+                    .pipe(stream_unwrap!("sending downlink packet"))
+                    .for_each(|_| {})
             })
             .collect::<Vec<_>>()
     }
@@ -55,7 +57,7 @@ where
         .race(all_serial_packets)
         .race(log_messages)
         .map(|msg| msg.pack_to_vec())
-        .pipe(crate::stream_unwrap!("packing message for downlink"))
+        .pipe(stream_unwrap!("packing message for downlink"))
         .map(|mut data| util::brotli_compress(&mut data))
-        .pipe(crate::stream_unwrap!("compressing message for downlink"))
+        .pipe(stream_unwrap!("compressing message for downlink"))
 }

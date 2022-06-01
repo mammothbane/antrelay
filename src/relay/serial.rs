@@ -1,12 +1,5 @@
-use crate::{
-    message::{
-        crc_wrap::Ack,
-        Message,
-        OpaqueBytes,
-    },
-    packet_io::PacketIO,
-    util::log_and_discard_errors,
-};
+use std::sync::Arc;
+
 use async_std::prelude::Stream;
 use backoff::backoff::Backoff;
 use eyre::WrapErr;
@@ -15,8 +8,17 @@ use futures::{
     AsyncWrite,
 };
 use smol::stream::StreamExt;
-use std::sync::Arc;
 use tap::Pipe;
+
+use crate::{
+    message::{
+        crc_wrap::Ack,
+        Message,
+        OpaqueBytes,
+    },
+    packet_io::PacketIO,
+    stream_unwrap,
+};
 
 #[tracing::instrument]
 pub async fn connect_serial(
@@ -50,7 +52,7 @@ where
 
             Ok((msg, crc))
         })
-        .pipe(|s| log_and_discard_errors(s, "computing incoming message checksum"))
+        .pipe(stream_unwrap!("computing incoming message checksum"))
         .then(move |(msg, crc): (Message<OpaqueBytes>, Vec<u8>)| {
             let packetio = packetio.clone();
 
@@ -85,5 +87,5 @@ where
                 },
             ))
         })
-        .pipe(|s| log_and_discard_errors(s, "no ack from serial connection"))
+        .pipe(stream_unwrap!("no ack from serial connection"))
 }

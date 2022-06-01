@@ -36,7 +36,7 @@ where
         let (mut tx, rx) = async_broadcast::broadcast(buffer);
         tx.set_overflow(true);
 
-        (tx, rx)
+        (tx, rx.deactivate())
     };
 
     let span = Span::current();
@@ -52,29 +52,25 @@ where
     })
     .detach();
 
-    rx
-}
-
-#[inline]
-#[tracing::instrument(skip_all)]
-pub fn log_and_discard_errors<T, E>(
-    s: impl Stream<Item = Result<T, E>>,
-    msg: &'static str,
-) -> impl Stream<Item = T>
-where
-    E: std::fmt::Display,
-{
-    s.filter_map(move |x| {
-        trace_catch!(x, msg);
-
-        x.ok()
-    })
+    rx.activate_cloned()
 }
 
 #[macro_export]
 macro_rules! stream_unwrap {
+    (parent: $parent:expr, $($args:tt)*) => {
+        |s| s.filter_map(move |x| {
+            $crate::trace_catch!(parent: $parent, x, $($args)*);
+
+            x.ok()
+        })
+    };
+
     ($($args:tt)*) => {
-        |s| $crate::util::log_and_discard_errors(s, $($args)*)
+        |s| s.filter_map(move |x| {
+            $crate::trace_catch!(x, $($args)*);
+
+            x.ok()
+        })
     };
 }
 
@@ -104,7 +100,7 @@ pub use bootstrap;
 pub use trace_catch;
 
 #[inline]
-#[tracing::instrument(skip_all, level = "debug")]
+#[tracing::instrument(skip_all, level = "trace")]
 pub fn deserialize_messages<T>(
     s: impl Stream<Item = Vec<u8>>,
 ) -> impl Stream<Item = PackingResult<Message<T>>>
@@ -114,7 +110,7 @@ where
     s.map(|msg| <Message<T> as PackedStructSlice>::unpack_from_slice(&msg))
 }
 
-#[tracing::instrument(skip_all, level = "debug")]
+#[tracing::instrument(skip_all, level = "trace")]
 pub fn brotli_compress(message: &mut Vec<u8>) -> eyre::Result<Vec<u8>> {
     let compressed_bytes = {
         let mut out = vec![];

@@ -1,10 +1,10 @@
 use std::{
+    cell::RefCell,
     error::Error,
     fmt::Display,
+    sync::Arc,
     time::Duration,
 };
-use std::cell::RefCell;
-use std::sync::Arc;
 
 use backoff::backoff::Backoff;
 use smol::stream::{
@@ -12,8 +12,9 @@ use smol::stream::{
     StreamExt,
 };
 use tap::Pipe;
+use tracing::Span;
 
-use crate::{util};
+use crate::stream_unwrap;
 
 pub use datagram::{
     Datagram,
@@ -37,10 +38,10 @@ pub fn socket_stream<Socket>(
     backoff: impl Backoff + Clone + Send + Sync,
     mode: SocketMode,
 ) -> impl Stream<Item = Result<Socket, Socket::Error>> + Unpin + Send
-    where
-        Socket: Datagram,
-        Socket::Address: Clone + Send + Sync,
-        Socket::Error: Display,
+where
+    Socket: Datagram,
+    Socket::Address: Clone + Send + Sync,
+    Socket::Error: Display,
 {
     smol::stream::unfold(backoff, move |backoff| {
         let address = address.clone();
@@ -59,7 +60,7 @@ pub fn socket_stream<Socket>(
                     tracing::error!(error = %e, backoff_dur = ?dur, ?mode, "connecting to socket");
                 },
             )
-                .await;
+            .await;
 
             Some((result, backoff))
         })
@@ -74,6 +75,8 @@ where
     Socket: DatagramReceiver,
     Socket::Error: Error + Send + Sync + 'static,
 {
+    let span = Span::current();
+
     sockets
         .flat_map(|sock| {
             Box::pin(smol::stream::try_unfold((sock, vec![0u8; 8192]), |(sock, mut buf)| {
@@ -86,39 +89,44 @@ where
                 })
             }))
         })
-        .pipe(|s| util::log_and_discard_errors(s, "reading from socket"))
+        .pipe(stream_unwrap!(parent: &span, "reading from socket"))
 }
 
 #[tracing::instrument(skip_all)]
-pub async fn send_packets<Socket>(
-    sockets: impl Stream<Item = Socket> + Unpin + 'static,
-    packets: impl Stream<Item = Vec<u8>> + StreamExt + Unpin,
+pub fn send_packets<Socket>(
+    sockets: impl Stream<Item = Socket> + Unpin,
+    packets: impl Stream<Item = Vec<u8>>,
 ) -> impl Stream<Item = Result<(), Socket::Error>>
-    where
-    Socket: DatagramSender + 'static,
+where
+    Socket: DatagramSender,
     Socket::Error: Error,
 {
-    packets
-        .pipe(|s| futures::StreamExt::scan(s, (Arc::new(RefCell::new(sockets)), Arc::new(RefCell::new(None))), |(sockets, sock), pkt| {
-            let sock = sock.clone();
-            let sockets = sockets.clone();
+    packets.pipe(|s| {
+        futures::StreamExt::scan(
+            s,
+            (Arc::new(RefCell::new(sockets)), Arc::new(RefCell::new(None))),
+            |(sockets, sock), pkt| {
+                let sock = sock.clone();
+                let sockets = sockets.clone();
 
-            async move {
-                let sock = sock;
-                let sockets = sockets;
+                async move {
+                    let sock = sock;
+                    let sockets = sockets;
 
-                let mut sock = sock.borrow_mut();
-                let mut sockets = sockets.borrow_mut();
+                    let mut sock = sock.borrow_mut();
+                    let mut sockets = sockets.borrow_mut();
 
-                if sock.is_none() {
-                    *sock = sockets.next().await.map(Arc::new);
+                    if sock.is_none() {
+                        *sock = sockets.next().await.map(Arc::new);
+                    }
+
+                    let result = sock.as_mut()?.send(&pkt).await.map(|_| ());
+
+                    Some(result)
                 }
-
-                let result = sock.as_mut()?.send(&pkt).await.map(|_| ());
-
-                Some(result)
-            }
-        }))
+            },
+        )
+    })
 }
 
 lazy_static::lazy_static! {
