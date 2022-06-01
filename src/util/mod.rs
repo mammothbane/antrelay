@@ -65,6 +65,13 @@ where
 }
 
 #[macro_export]
+macro_rules! trace_unwrap {
+    ($($args:tt)*) => {
+        |s| $crate::util::log_and_discard_errors(s, $($args)*)
+    };
+}
+
+#[macro_export]
 macro_rules! bootstrap {
     ($x:expr $( , $xs:expr )* $(,)?) => {
         eprintln!(concat!("[bootstrap] ", $x) $( , $xs )*)

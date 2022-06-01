@@ -1,9 +1,9 @@
 #![feature(never_type)]
 #![feature(io_safety)]
+#![feature(explicit_generic_args_with_impl_trait)]
 #![cfg(feature = "serial_cobs")]
 
 use std::{
-    net::Shutdown,
     sync::{
         atomic::{
             AtomicU8,
@@ -17,10 +17,15 @@ use std::{
 use async_compat::Compat;
 use packed_struct::PackedStructSlice;
 use smol::{
+    future::Future,
     io::AsyncWriteExt,
     lock::Mutex,
-    stream::StreamExt,
+    stream::{
+        Stream,
+        StreamExt as _,
+    },
 };
+use stream_cancel::StreamExt as _;
 use structopt::StructOpt;
 use tap::Pipe;
 
@@ -37,10 +42,14 @@ use lunarrelay::{
         Message,
         OpaqueBytes,
     },
-    net::Datagram,
+    net::{
+        receive_packets,
+        Datagram,
+        DEFAULT_BACKOFF,
+    },
     signals,
-    trace_catch,
-    util,
+    trace_unwrap,
+    tracing::Event,
     MissionEpoch,
 };
 
@@ -66,8 +75,16 @@ fn main() -> eyre::Result<()> {
     } = Options::from_args();
 
     let done = signals::signals()?;
-
     tracing::info!("registered signals");
+
+    let (tripwire, trigger) = stream_cancel::Tripwire::new();
+
+    smol::spawn(async move {
+        done.recv().await;
+        tracing::info!("interrupted");
+        tripwire.cancel();
+    })
+    .detach();
 
     smol::block_on(async move {
         let _uplink_sock = <Socket as Datagram>::bind(&uplink_sock).await?;
@@ -75,29 +92,19 @@ fn main() -> eyre::Result<()> {
 
         let downlink_fut = downlink
             .into_iter()
-            .map(|dl| log_all(dl, done.clone()))
+            .map(|dl| log_all(dl, trigger.clone()))
             .pipe(futures::future::join_all);
 
-        tracing::info!("logging messages from downlink");
-        smol::spawn(downlink_fut).detach();
+        let serial_stream = send_serial(serial_port).await?;
+        let serial_fut = serial_stream.pipe(trace_unwrap!("handling serial")).for_each(|_| ());
 
-        smol::spawn(async move {
-            loop {
-                trace_catch!(send_serial(serial_port.clone()).await, "sending dummy serial data");
-                smol::Timer::after(Duration::from_secs(1)).await;
-            }
-        })
-        .detach();
-
-        let _ = done.recv().await;
-
-        tracing::info!("main task received interrupt, awaiting log tasks");
+        smol::future::zip(downlink_fut, serial_fut).await;
 
         Ok(()) as eyre::Result<()>
     })
 }
 
-async fn send_serial(path: String) -> eyre::Result<()> {
+async fn send_serial(path: String) -> eyre::Result<impl Stream<Item = eyre::Result<()>>> {
     let builder = tokio_serial::new(&path, 115200);
 
     let serial_stream = {
@@ -108,89 +115,80 @@ async fn send_serial(path: String) -> eyre::Result<()> {
 
     let seq = Arc::new(AtomicU8::new(0));
 
-    smol::Timer::interval(Duration::from_secs(5))
-        .then(|_inst| {
-            let serial_stream = serial_stream.clone();
+    Ok(smol::Timer::interval(Duration::from_secs(5)).then(move |_inst| {
+        let serial_stream = serial_stream.clone();
 
-            Box::pin({
-                let seq = seq.clone();
+        let seq = seq.clone();
 
-                async move {
-                    let mut serial_stream = serial_stream.lock().await;
+        Box::pin({
+            async move {
+                let mut serial_stream = serial_stream.lock().await;
 
-                    let wrapped_payload = CRCWrap::<Vec<u8>>::new(b"test".to_vec());
+                let wrapped_payload = CRCWrap::<Vec<u8>>::new(b"test".to_vec());
 
-                    let message = Message {
-                        header:  Header {
-                            magic:       Default::default(),
-                            destination: Destination::CentralStation,
-                            timestamp:   MissionEpoch::now(),
-                            seq:         seq.fetch_add(1, Ordering::Acquire),
-                            ty:          Type {
-                                ack:                   false,
-                                acked_message_invalid: false,
-                                target:                Target::CentralStation,
-                                kind:                  Kind::VoltageSupplied,
-                            },
+                let message = Message {
+                    header:  Header {
+                        magic:       Default::default(),
+                        destination: Destination::CentralStation,
+                        timestamp:   MissionEpoch::now(),
+                        seq:         seq.fetch_add(1, Ordering::Acquire),
+                        ty:          Type {
+                            ack:                   false,
+                            acked_message_invalid: false,
+                            target:                Target::CentralStation,
+                            kind:                  Kind::VoltageSupplied,
                         },
-                        payload: wrapped_payload,
-                    };
+                    },
+                    payload: wrapped_payload,
+                };
 
-                    let message = message.pack_to_vec()?;
+                let message = message.pack_to_vec()?;
 
-                    let encoded = {
-                        let mut ret = cobs::encode_vec(&message);
-                        ret.push(0);
-                        ret
-                    };
+                let encoded = {
+                    let mut ret = cobs::encode_vec(&message);
+                    ret.push(0);
+                    ret
+                };
 
-                    serial_stream.write_all(&encoded).await?;
-                    tracing::debug!("wrote to serial port");
+                serial_stream.write_all(&encoded).await?;
+                tracing::debug!("wrote to serial port");
 
-                    Ok(()) as eyre::Result<()>
-                }
-            })
+                Ok(()) as eyre::Result<()>
+            }
         })
-        .try_for_each(|result| result)
-        .await
+    }))
 }
 
-#[tracing::instrument(fields(addr = ?addr), skip(done))]
+#[tracing::instrument(fields(addr = ?addr), skip(done), err(Display))]
 async fn log_all(
     addr: <Socket as Datagram>::Address,
-    done: smol::channel::Receiver<!>,
+    done: impl Future<Output = bool>,
 ) -> eyre::Result<()> {
     let mut buf = vec![0; 4096];
 
-    let socket = <Socket as Datagram>::bind(&addr).await?;
-    tracing::info!("bound downlink socket");
+    receive_packets::<Socket>(addr.clone(), DEFAULT_BACKOFF.clone())
+        .take_until_if(done)
+        .map(|packet| {
+            tracing::debug!(length = packet.len(), "packet received");
 
-    loop {
-        tracing::debug!("waiting for packet");
+            let mut decompressed = vec![];
+            brotli::BrotliDecompress(&mut &packet[..], &mut decompressed)?;
+            Ok(decompressed) as eyre::Result<Vec<u8>>
+        })
+        .pipe(trace_unwrap!("decompressing message"))
+        .map(|decompressed| {
+            <Message<OpaqueBytes> as PackedStructSlice>::unpack_from_slice(&decompressed)
+        })
+        .pipe(trace_unwrap!("unpacking message"))
+        .map(|msg| {
+            let payload = bincode::deserialize::<Event>(&msg.payload.as_ref())?;
+            tracing::debug!(msg.header = %msg.header.display(), %payload, "decoded message");
 
-        let count = match util::either(socket.recv(&mut buf), done.recv()).await {
-            either::Left(Ok(count)) => count,
-            either::Left(Err(e)) => {
-                tracing::error!(e = %e, "failed to read from socket");
-                continue;
-            },
-            either::Right(Err(smol::channel::RecvError)) => {
-                tracing::info!("logger shutting down");
-                break;
-            },
-            either::Right(Ok(_)) => unreachable!(),
-        };
-
-        tracing::debug!(length = count, "message received");
-
-        let mut decompressed = vec![];
-        brotli::BrotliDecompress(&mut &buf[..count], &mut decompressed)?;
-
-        let msg = <Message<OpaqueBytes> as PackedStructSlice>::unpack_from_slice(&decompressed)?;
-        tracing::debug!(msg.header = %msg.header.display(), %msg.payload, "decoded message");
-    }
-
-    socket.shutdown(Shutdown::Both)?;
+            Ok(()) as eyre::Result<()>
+        })
+        .pipe(trace_unwrap!("deserializing message payload"))
+        .for_each(|_| {})
+        .await;
 
     #[cfg(unix)]
     smol::fs::remove_file(addr).await?;

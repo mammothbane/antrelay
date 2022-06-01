@@ -67,37 +67,26 @@ where
 pub fn dummy_log_downlink(
     s: impl Stream<Item = crate::tracing::Event>,
 ) -> impl Stream<Item = Message<OpaqueBytes>> {
-    s.pipe(|s| futures::stream::StreamExt::chunks(s, 5)).map(|evts| {
-        let payload = evts
-            .into_iter()
-            .map(|evt| {
-                evt.args
-                    .into_iter()
-                    .map(|(name, value)| format!("{}={}", name, value))
-                    .intersperse(",".to_owned())
-                    .collect::<String>()
-            })
-            .intersperse(":".to_owned())
-            .collect::<String>();
+    s.pipe(|s| futures::stream::StreamExt::chunks(s, 5))
+        .map(|evts| -> eyre::Result<Message<OpaqueBytes>> {
+            let payload = bincode::serialize(&evts)?;
+            let wrapped_payload = CRCWrap::<Vec<u8>>::new(payload);
 
-        let payload = payload.as_bytes().iter().map(|x| *x).collect::<Vec<u8>>();
-
-        let wrapped_payload = CRCWrap::<Vec<u8>>::new(payload);
-
-        Message {
-            header:  Header {
-                magic:       Default::default(),
-                destination: Destination::Ground,
-                timestamp:   MissionEpoch::now(),
-                seq:         0,
-                ty:          Type {
-                    ack:                   true,
-                    acked_message_invalid: false,
-                    target:                Target::Frontend,
-                    kind:                  Kind::Ping,
+            Ok(Message {
+                header:  Header {
+                    magic:       Default::default(),
+                    destination: Destination::Ground,
+                    timestamp:   MissionEpoch::now(),
+                    seq:         0,
+                    ty:          Type {
+                        ack:                   true,
+                        acked_message_invalid: false,
+                        target:                Target::Frontend,
+                        kind:                  Kind::Ping,
+                    },
                 },
-            },
-            payload: wrapped_payload,
-        }
-    })
+                payload: wrapped_payload,
+            })
+        })
+        .pipe(|s| log_and_discard_errors(s, "serializing log payload"))
 }

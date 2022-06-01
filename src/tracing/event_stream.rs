@@ -1,7 +1,4 @@
-use std::hash::{
-    Hash,
-    Hasher,
-};
+use std::hash::Hash;
 
 use tracing::{
     span::Record,
@@ -17,34 +14,34 @@ use tracing_subscriber::{
 
 use crate::tracing::{
     RetrieveValues,
+    Value,
     Values,
 };
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, derive_more::Display, serde::Serialize, serde::Deserialize)]
+#[display(fmt = "[{}] {} (values: {:?})", ty, "self.message()", args)]
 pub struct Event {
-    pub location: Option<(String, u32)>,
-    pub args:     Values,
-    pub ty:       EventType,
+    pub args: Values,
+    pub ty:   EventType,
 }
 
 impl Event {
-    #[inline]
-    pub fn location_hash(&self) -> u64 {
-        let mut hasher = fnv::FnvHasher::default();
-        self.location.hash(&mut hasher);
-
-        hasher.finish()
-    }
-
-    fn location_from_meta(meta: &Metadata) -> Option<(String, u32)> {
-        let line = meta.line()?;
-        let file = meta.file()?.to_string();
-
-        Some((file, line))
+    pub fn message(&self) -> &Value {
+        self.args.get("message").unwrap_or(&Value::Bool(false))
     }
 }
 
-#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(
+    Copy,
+    Clone,
+    Debug,
+    Hash,
+    PartialEq,
+    Eq,
+    serde::Serialize,
+    serde::Deserialize,
+    derive_more::Display,
+)]
 pub enum EventType {
     Event,
     SpanEnter,
@@ -69,14 +66,12 @@ macro_rules! record_span {
     ($name:ident, $idty:ty, $ty:expr) => {
         fn $name(&self, id: $idty, ctx: Context<'_, S>) {
             let _: Option<_> = try {
-                let meta = ctx.metadata(&id)?;
                 let values = ctx.span(&id)?.extensions().get::<$crate::tracing::Values>()?.clone();
 
                 self.0
                     .try_send(Event {
-                        location: Event::location_from_meta(meta),
-                        args:     values,
-                        ty:       $ty,
+                        args: values,
+                        ty:   $ty,
                     })
                     .unwrap()
             };
@@ -117,13 +112,9 @@ where
     }
 
     fn on_event(&self, event: &tracing::Event<'_>, _ctx: Context<'_, S>) {
-        let values = event.values();
-        let meta = event.metadata();
-
         if let Err(e) = self.0.try_send(Event {
-            location: Event::location_from_meta(meta),
-            args:     values,
-            ty:       EventType::Event,
+            args: event.values(),
+            ty:   EventType::Event,
         }) {
             eprintln!("failed to send event: {}", e);
         }

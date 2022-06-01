@@ -49,7 +49,9 @@ impl Datagram for UnixDatagram {
 
     #[inline]
     fn display_addr(addr: &PathBuf) -> String {
-        addr.display().to_string()
+        let canonical = addr.canonicalize();
+
+        canonical.as_ref().unwrap_or(addr).display().to_string()
     }
 }
 

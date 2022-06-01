@@ -6,7 +6,16 @@ mod visit;
 pub use event_stream::*;
 pub use visit::RetrieveValues;
 
-#[derive(Clone, Debug, PartialEq, PartialOrd, derive_more::From, derive_more::Display)]
+#[derive(
+    Clone,
+    Debug,
+    PartialEq,
+    PartialOrd,
+    derive_more::From,
+    derive_more::Display,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 pub enum Value {
     F64(f64),
     I64(i64),
@@ -15,4 +24,4 @@ pub enum Value {
     String(String),
 }
 
-pub type Values = HashMap<&'static str, Value>;
+pub type Values = HashMap<String, Value>;

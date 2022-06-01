@@ -85,7 +85,7 @@ impl<R, W> PacketIO<R, W> {
             Box::pin(async move {
                 let mut r = s.r.lock().await;
 
-                tracing::debug!("waiting for serial message");
+                tracing::trace!("waiting for serial message");
 
                 let count: usize = {
                     let result = r.read_until(sentinel, &mut buf).await;

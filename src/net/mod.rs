@@ -3,14 +3,21 @@ use std::{
     error::Error,
     net::Shutdown,
     rc::Rc,
+    sync::Arc,
     time::Duration,
 };
 
 use backoff::backoff::Backoff;
-use smol::stream::{
-    Stream,
-    StreamExt,
+use smol::{
+    future::Future,
+    stream::{
+        Stream,
+        StreamExt,
+    },
 };
+use tap::Pipe;
+
+use crate::util;
 
 pub use self::datagram::{
     Datagram,
@@ -23,54 +30,46 @@ mod datagram;
 #[cfg(unix)]
 mod unix;
 
-#[tracing::instrument(skip(backoff), fields(address = Socket::display_addr(&address).as_str()))]
+#[tracing::instrument(skip_all)]
 pub fn receive_packets<Socket>(
-    address: Socket::Address,
+    sockets: impl Stream<Item = Socket>,
     backoff: impl Backoff + Clone,
 ) -> impl Stream<Item = Vec<u8>> + Unpin
 where
     Socket: DatagramReceiver,
     Socket::Error: Error + Send + Sync + 'static,
 {
-    // TODO: regular unfold
-    smol::stream::try_unfold((address, backoff), |(address, backoff)| {
+    smol::stream::unfold(backoff, |backoff| {
         Box::pin(async move {
             let result = backoff::future::retry_notify(
                 backoff.clone(),
-                || async { Socket::connect(&address).await.map_err(backoff::Error::transient) },
+                || async { make_socket().await.map_err(backoff::Error::transient) },
                 |e, dur| {
                     tracing::error!(error = %e, backoff_dur = ?dur, "connecting to socket");
                 },
             )
-            .await?;
+            .await;
 
-            Ok(Some((result, (address, backoff))))
+            Some((result, backoff))
         })
     })
-    .filter_map(|sock: Result<Socket, backoff::Error<Socket::Error>>| {
-        crate::trace_catch!(sock, "connecting to socket");
-        sock.ok()
-    })
+    .pipe(|s| util::log_and_discard_errors(s, "connecting to socket"))
     .flat_map(|sock| {
         smol::stream::try_unfold((sock, vec![0u8; 8192]), |(sock, mut buf)| {
             Box::pin(async move {
-                tracing::debug!("waiting for data from socket");
+                tracing::trace!("waiting for data from socket");
 
                 let count = sock.recv(&mut buf).await?;
                 Ok(Some((buf[..count].to_vec(), (sock, buf)))) as eyre::Result<Option<(Vec<u8>, _)>>
             })
         })
     })
-    .filter_map(|result| {
-        crate::trace_catch!(result, "reading from socket");
-        result.ok()
-    })
+    .pipe(|s| util::log_and_discard_errors(s, "reading from socket"))
 }
 
-/// Makes a socket into a sink for packets
-#[tracing::instrument(skip(packets, backoff), fields(address = Socket::display_addr(&address).as_str()))]
+#[tracing::instrument(skip(packets, backoff))]
 pub async fn send_packets<Socket>(
-    address: Socket::Address,
+    sockets: impl Stream<Item = Socket>,
     packets: impl Stream<Item = Vec<u8>> + StreamExt + Unpin,
     backoff: impl Backoff + Clone,
 ) where

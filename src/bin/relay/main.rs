@@ -49,7 +49,7 @@ fn main() -> Result<()> {
 
     let options: Options = Options::from_args();
 
-    let log_stream = trace::init()?;
+    let trace_event_stream = trace::init()?;
 
     tracing::info!(
         downlink_ty = ?lunarrelay::message::payload::log::Type::Startup,
@@ -106,7 +106,7 @@ fn main() -> Result<()> {
             let downlink_packets = relay::assemble_downlink::<Socket>(
                 uplink.clone(),
                 all_serial,
-                relay::dummy_log_downlink(log_stream).take_until_if(tripwire.clone()),
+                relay::dummy_log_downlink(trace_event_stream).take_until_if(tripwire.clone()),
             )
             .await;
 

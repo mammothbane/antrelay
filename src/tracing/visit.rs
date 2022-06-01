@@ -38,7 +38,7 @@ struct Visitor(Values);
 macro_rules! imp {
     ($name:ident, $ty:ty, $expr:expr) => {
         fn $name(&mut self, field: &::tracing::field::Field, value: $ty) {
-            self.0.insert(field.name(), $crate::tracing::Value::from($expr(value)));
+            self.0.insert(field.name().to_string(), $crate::tracing::Value::from($expr(value)));
         }
     };
 }
