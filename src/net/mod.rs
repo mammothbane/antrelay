@@ -1,19 +1,15 @@
 use std::{
-    cell::RefCell,
     error::Error,
+    fmt::Display,
     net::Shutdown,
-    rc::Rc,
     sync::Arc,
     time::Duration,
 };
 
 use backoff::backoff::Backoff;
-use smol::{
-    future::Future,
-    stream::{
-        Stream,
-        StreamExt,
-    },
+use smol::stream::{
+    Stream,
+    StreamExt,
 };
 use tap::Pipe;
 
@@ -30,20 +26,22 @@ mod datagram;
 #[cfg(unix)]
 mod unix;
 
-#[tracing::instrument(skip_all)]
-pub fn receive_packets<Socket>(
-    sockets: impl Stream<Item = Socket>,
+pub fn socket_connects<Socket>(
+    address: Socket::Address,
     backoff: impl Backoff + Clone,
-) -> impl Stream<Item = Vec<u8>> + Unpin
+) -> impl Stream<Item = Result<Socket, Socket::Error>> + Unpin
 where
-    Socket: DatagramReceiver,
-    Socket::Error: Error + Send + Sync + 'static,
+    Socket: Datagram,
+    Socket::Address: Clone,
+    Socket::Error: Display,
 {
-    smol::stream::unfold(backoff, |backoff| {
+    smol::stream::unfold(backoff, move |backoff| {
+        let address = address.clone();
+
         Box::pin(async move {
             let result = backoff::future::retry_notify(
                 backoff.clone(),
-                || async { make_socket().await.map_err(backoff::Error::transient) },
+                || async { Socket::connect(&address).await.map_err(backoff::Error::transient) },
                 |e, dur| {
                     tracing::error!(error = %e, backoff_dur = ?dur, "connecting to socket");
                 },
@@ -53,30 +51,67 @@ where
             Some((result, backoff))
         })
     })
-    .pipe(|s| util::log_and_discard_errors(s, "connecting to socket"))
-    .flat_map(|sock| {
-        smol::stream::try_unfold((sock, vec![0u8; 8192]), |(sock, mut buf)| {
-            Box::pin(async move {
-                tracing::trace!("waiting for data from socket");
-
-                let count = sock.recv(&mut buf).await?;
-                Ok(Some((buf[..count].to_vec(), (sock, buf)))) as eyre::Result<Option<(Vec<u8>, _)>>
-            })
-        })
-    })
-    .pipe(|s| util::log_and_discard_errors(s, "reading from socket"))
 }
 
-#[tracing::instrument(skip(packets, backoff))]
-pub async fn send_packets<Socket>(
-    sockets: impl Stream<Item = Socket>,
-    packets: impl Stream<Item = Vec<u8>> + StreamExt + Unpin,
+pub fn socket_binds<Socket>(
+    address: Socket::Address,
     backoff: impl Backoff + Clone,
+) -> impl Stream<Item = Result<Socket, Socket::Error>> + Unpin
+where
+    Socket: Datagram,
+    Socket::Address: Clone + 'static,
+    Socket::Error: Display,
+{
+    smol::stream::unfold(backoff, move |backoff| {
+        let address = address.clone();
+
+        Box::pin({
+            async move {
+                let result = backoff::future::retry_notify(
+                    backoff.clone(),
+                    || async { Socket::bind(&address).await.map_err(backoff::Error::transient) },
+                    |e, dur| tracing::error!(error = %e, backoff_duration = ?dur, "connecting to socket"),
+                )
+                    .await;
+
+                Some((result, backoff))
+            }
+        })
+    })
+}
+
+#[tracing::instrument(skip_all)]
+pub fn receive_packets<Socket>(
+    sockets: impl Stream<Item = Socket>,
+) -> impl Stream<Item = Vec<u8>> + Unpin
+where
+    Socket: DatagramReceiver,
+    Socket::Error: Error + Send + Sync + 'static,
+{
+    sockets
+        .flat_map(|sock| {
+            Box::pin(smol::stream::try_unfold((sock, vec![0u8; 8192]), |(sock, mut buf)| {
+                Box::pin(async move {
+                    tracing::trace!("waiting for data from socket");
+
+                    let count = sock.recv(&mut buf).await?;
+                    Ok(Some((buf[..count].to_vec(), (sock, buf))))
+                        as eyre::Result<Option<(Vec<u8>, _)>>
+                })
+            }))
+        })
+        .pipe(|s| util::log_and_discard_errors(s, "reading from socket"))
+}
+
+#[tracing::instrument(skip_all)]
+pub async fn send_packets<Socket>(
+    sockets: impl Stream<Item = Result<Socket, Socket::Error>>,
+    packets: impl Stream<Item = Vec<u8>> + StreamExt + Unpin,
 ) where
     Socket: DatagramSender,
     Socket::Error: Error,
 {
-    let sock: Rc<RefCell<Option<Socket>>> = Rc::new(RefCell::new(None));
+    sockets.flat_map(|socket| packets.then(|pkt| socket.send(&pkt))).try_for_each();
 
     let mut send_stream = packets.then(|pkt| {
         let sock = sock.clone();
@@ -92,15 +127,7 @@ pub async fn send_packets<Socket>(
     });
 
     loop {
-        let addr = &address;
-        let backoff = backoff.clone();
-
-        let sock_result = backoff::future::retry_notify(
-            backoff,
-            || async { Socket::connect(addr).await.map_err(backoff::Error::transient) },
-            |e, dur| tracing::error!(error = %e, backoff_duration = ?dur, "connecting to socket"),
-        )
-        .await;
+        let sock_result = sockets.next().await?;
 
         match sock_result {
             Ok(s) => {
