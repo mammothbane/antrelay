@@ -1,3 +1,4 @@
+use crate::message::CRCWrap;
 use packed_struct::{
     prelude::*,
     PackedStructInfo,
@@ -36,6 +37,16 @@ where
             header:  self.header.clone(),
             payload: new_payload,
         })
+    }
+}
+
+impl<Header, T, CRC> HeaderPacket<Header, CRCWrap<T, CRC>> {
+    #[inline]
+    pub fn new(header: Header, t: T) -> Self {
+        HeaderPacket {
+            header,
+            payload: CRCWrap::new(t),
+        }
     }
 }
 

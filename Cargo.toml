@@ -11,7 +11,7 @@ smol = "1.2"
 async-compat = "0.2"
 async-broadcast = "0.4"
 async-trait = "0.1"
-async-std = "1.11"
+async-std = { version = "1.11", features = ["attributes"] }
 futures = "0.3"
 tokio-serial = "5.4"
 stream-cancel = "0.8"
@@ -43,6 +43,7 @@ tap = "1.0"
 once_cell = "1.12"
 
 num-traits = "0.2"
+typenum = "1.15"
 
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
@@ -64,6 +65,7 @@ serial_cobs = ["cobs"]
 
 [dev-dependencies]
 proptest = "1.0"
+sluice = "0.5"
 
 [build-dependencies]
 vergen = "6.0"

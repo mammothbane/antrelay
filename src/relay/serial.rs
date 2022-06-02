@@ -48,7 +48,7 @@ pub async fn connect_serial(
 }
 
 #[tracing::instrument(skip_all)]
-pub async fn relay_uplink_to_serial<'a, 'u, R, W>(
+pub fn relay_uplink_to_serial<'a, 'u, R, W>(
     uplink: impl Stream<Item = Message<OpaqueBytes>> + 'u,
     packetio: Arc<PacketIO<R, W>>,
     request_backoff: impl Backoff + Clone + 'static,
@@ -59,7 +59,7 @@ where
     'u: 'a,
 {
     uplink
-        .filter(|msg| msg.header.destination != crate::message::header::Destination::Frontend)
+        .filter(|msg| msg.header.destination != Destination::Frontend)
         .map(|msg| -> eyre::Result<_> {
             let crc = msg.payload.checksum()?.to_vec();
 

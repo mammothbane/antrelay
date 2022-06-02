@@ -46,15 +46,11 @@ pub async fn send_downlink<Socket>(
 }
 
 #[tracing::instrument(skip_all)]
-pub async fn assemble_downlink<Socket>(
+pub fn assemble_downlink(
     uplink: impl Stream<Item = Message<OpaqueBytes>> + Unpin + Clone + 'static,
     log_messages: impl Stream<Item = Message<OpaqueBytes>> + Unpin + 'static,
     relayed_serial_packets: impl Stream<Item = Message<OpaqueBytes>> + Unpin + 'static,
-) -> impl Stream<Item = Vec<u8>>
-where
-    Socket: DatagramReceiver + DatagramSender,
-    Socket::Error: Error + Send + Sync + 'static,
-{
+) -> impl Stream<Item = Vec<u8>> {
     uplink
         .race(log_messages)
         .race(relayed_serial_packets)

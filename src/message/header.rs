@@ -1,5 +1,8 @@
+use num_traits::Unsigned;
 use packed_struct::prelude::*;
+use std::marker::PhantomData;
 use tap::Conv;
+use typenum::Bit;
 
 use crate::{
     message::{
@@ -36,7 +39,70 @@ pub struct Header {
     pub ty:          Type,
 }
 
+pub trait Clock {
+    fn now() -> MissionEpoch;
+}
+
+impl Clock for chrono::Utc {
+    #[inline]
+    fn now() -> MissionEpoch {
+        Self::now().into()
+    }
+}
+
+pub struct Const<const C: u32>;
+
+impl<const C: u32> Clock for Const<C> {
+    #[inline]
+    fn now() -> MissionEpoch {
+        C.into()
+    }
+}
+
 impl Header {
+    #[inline]
+    pub fn downlink<C>(seq: u8, kind: Kind) -> Self
+    where
+        C: Clock,
+    {
+        Header {
+            magic: Default::default(),
+            destination: Destination::Ground,
+
+            timestamp: C::now(),
+
+            seq,
+
+            ty: Type {
+                ack: true,
+                acked_message_invalid: false,
+                source: Source::Frontend,
+                kind,
+            },
+        }
+    }
+
+    pub fn cs_command<C>(seq: u8, kind: Kind) -> Self
+    where
+        C: Clock,
+    {
+        Header {
+            magic: Default::default(),
+            destination: Destination::CentralStation,
+
+            timestamp: C::now(),
+
+            seq,
+
+            ty: Type {
+                ack: true,
+                acked_message_invalid: false,
+                source: Source::Frontend,
+                kind,
+            },
+        }
+    }
+
     #[inline]
     pub fn unique_id(&self) -> UniqueId {
         UniqueId {
@@ -172,7 +238,7 @@ mod test {
     }
 
     prop_compose! {
-        fn type_strategy()(ack in any::<bool>(), acked_message_invalid in any::<bool>(), target in target_strategy(), kind in kind_strategy()) -> Type {
+        fn type_strategy()(ack in any::<bool>(), acked_message_invalid in any::<bool>(), source in source_strategy(), kind in kind_strategy()) -> Type {
             Type {
                 ack,
                 acked_message_invalid,
@@ -191,7 +257,7 @@ mod test {
         ]
     }
 
-    fn target_strategy() -> impl Strategy<Value = Source> {
+    fn source_strategy() -> impl Strategy<Value = Source> {
         prop_oneof![Just(Source::Ant), Just(Source::CentralStation), Just(Source::Frontend),]
     }
 

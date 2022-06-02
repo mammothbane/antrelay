@@ -7,10 +7,12 @@
 #![feature(associated_type_defaults)]
 #![feature(explicit_generic_args_with_impl_trait)]
 #![feature(iter_intersperse)]
+#![feature(const_convert)]
 
 mod mission_epoch;
 
 pub mod build;
+pub mod io;
 pub mod message;
 pub mod net;
 pub mod packet_io;
