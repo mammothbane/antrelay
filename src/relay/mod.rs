@@ -33,6 +33,7 @@ use crate::{
 mod downlink;
 mod serial;
 
+use crate::message::payload::Ack;
 pub use downlink::*;
 pub use serial::*;
 
@@ -57,6 +58,36 @@ where
     receive_packets(socket_stream)
         .pipe(deserialize_messages)
         .pipe(stream_unwrap!(parent: &span, "deserializing messages"))
+}
+
+#[tracing::instrument(skip_all)]
+pub async fn ack_frontend(
+    packets: impl Stream<Item = Message<OpaqueBytes>>,
+) -> impl Stream<Item = Message<Ack>> {
+    packets
+        .filter(|pkt| pkt.header.destination == Destination::Frontend)
+        .map(|pkt| {
+            Ok(Message {
+                header:  Header {
+                    magic:       Default::default(),
+                    destination: Destination::Ground,
+                    timestamp:   MissionEpoch::now(),
+                    seq:         0,
+                    ty:          Type {
+                        ack:                   true,
+                        acked_message_invalid: false,
+                        source:                Source::Frontend,
+                        kind:                  pkt.header.ty.kind,
+                    },
+                },
+                payload: CRCWrap::new(Ack {
+                    timestamp: pkt.header.timestamp,
+                    seq:       pkt.header.seq,
+                    checksum:  pkt.payload.checksum()?[0],
+                }),
+            }) as eyre::Result<()>
+        })
+        .pipe(stream_unwrap!("checksumming message"))
 }
 
 // TODO: use actual log format
