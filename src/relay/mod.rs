@@ -26,10 +26,7 @@ use crate::{
         DatagramReceiver,
     },
     stream_unwrap,
-    util::{
-        deserialize_messages,
-        splittable_stream,
-    },
+    util::deserialize_messages,
     MissionEpoch,
 };
 
@@ -50,7 +47,6 @@ lazy_static::lazy_static! {
 #[tracing::instrument(skip(socket_stream))]
 pub async fn uplink_stream<Socket>(
     socket_stream: impl Stream<Item = Socket> + Unpin + Send + 'static,
-    buffer: usize,
 ) -> impl Stream<Item = Message<OpaqueBytes>>
 where
     Socket: DatagramReceiver + Send + Sync + 'static,
@@ -61,7 +57,6 @@ where
     receive_packets(socket_stream)
         .pipe(deserialize_messages)
         .pipe(stream_unwrap!(parent: &span, "deserializing messages"))
-        .pipe(|s| splittable_stream(s, buffer))
 }
 
 // TODO: use actual log format

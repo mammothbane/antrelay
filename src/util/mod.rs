@@ -25,9 +25,11 @@ pub async fn either<T, U>(
         .await
 }
 
-// TODO: task to future
 #[tracing::instrument(skip(s))]
-pub fn splittable_stream<S>(s: S, buffer: usize) -> impl Stream<Item = S::Item> + Clone + Unpin
+pub fn splittable_stream<S>(
+    s: S,
+    buffer: usize,
+) -> (impl Stream<Item = S::Item> + Clone + Unpin, impl Future<Output = ()>)
 where
     S: Stream + Send + 'static,
     S::Item: Clone + Send + Sync,
@@ -39,20 +41,16 @@ where
         (tx, rx.deactivate())
     };
 
-    let span = Span::current();
-
-    smol::spawn(async move {
+    let pump = async move {
         let tx = tx;
-        let span = span;
 
         s.for_each(|s| {
-            trace_catch!(parent: &span, tx.try_broadcast(s), "broadcasting to splittable stream");
+            trace_catch!(tx.try_broadcast(s), "broadcasting to splittable stream");
         })
         .await;
-    })
-    .detach();
+    };
 
-    rx.activate_cloned()
+    (rx.activate_cloned(), pump)
 }
 
 #[macro_export]

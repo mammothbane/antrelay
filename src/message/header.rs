@@ -124,6 +124,7 @@ pub enum Kind {
     RoverWillTurn   = 0x04,
     RoverNotTurning = 0x05,
     VoltageSupplied = 0x06,
+    Relay           = 0x07,
 }
 
 #[cfg(test)]

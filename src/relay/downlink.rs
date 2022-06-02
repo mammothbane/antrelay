@@ -27,35 +27,37 @@ pub async fn send_downlink<Socket>(
     Socket: DatagramSender + 'static,
     Socket::Error: Error,
 {
-    {
-        let split = splittable_stream(packets, 1024);
+    let (s, pump) = {
+        let (split, pump) = splittable_stream(packets, 1024);
 
-        streams
+        let s = streams
             .into_iter()
             .map(|stream| {
                 crate::net::send_packets(stream, split.clone())
                     .pipe(stream_unwrap!("sending downlink packet"))
                     .for_each(|_| {})
             })
-            .collect::<Vec<_>>()
-    }
-    .pipe(futures::future::join_all)
-    .await;
+            .collect::<Vec<_>>();
+
+        (s, pump)
+    };
+
+    smol::future::zip(futures::future::join_all(s), pump).await;
 }
 
 #[tracing::instrument(skip_all)]
 pub async fn assemble_downlink<Socket>(
     uplink: impl Stream<Item = Message<OpaqueBytes>> + Unpin + Clone + 'static,
-    all_serial_packets: impl Stream<Item = Message<OpaqueBytes>> + Unpin + 'static,
     log_messages: impl Stream<Item = Message<OpaqueBytes>> + Unpin + 'static,
+    relayed_serial_packets: impl Stream<Item = Message<OpaqueBytes>> + Unpin + 'static,
 ) -> impl Stream<Item = Vec<u8>>
 where
     Socket: DatagramReceiver + DatagramSender,
     Socket::Error: Error + Send + Sync + 'static,
 {
     uplink
-        .race(all_serial_packets)
         .race(log_messages)
+        .race(relayed_serial_packets)
         .map(|msg| msg.pack_to_vec())
         .pipe(stream_unwrap!("packing message for downlink"))
         .map(|mut data| util::brotli_compress(&mut data))

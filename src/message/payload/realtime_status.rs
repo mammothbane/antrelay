@@ -12,6 +12,7 @@ pub struct RealtimeStatus {
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PrimitiveEnum_u8)]
 pub enum Flags {
+    None                = 0x0,
     Booted              = 0x01,
     Shutdown            = 0x02,
     SerialError         = 0x04,

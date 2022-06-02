@@ -13,10 +13,29 @@ use smol::stream::StreamExt;
 use std::sync::Arc;
 use structopt::StructOpt as _;
 
-use lunarrelay::{build, net, net::DEFAULT_BACKOFF, packet_io::PacketIO, relay, signals, stream_unwrap, util, util::splittable_stream};
+use lunarrelay::{
+    build,
+    message::{
+        crc_wrap::RealtimeStatus,
+        payload::realtime_status::Flags,
+        CRCWrap,
+        OpaqueBytes,
+    },
+    net,
+    net::{
+        SocketMode,
+        DEFAULT_BACKOFF,
+    },
+    packet_io::PacketIO,
+    relay,
+    relay::wrap_relay_packets,
+    signals,
+    stream_unwrap,
+    util,
+    util::splittable_stream,
+};
 use stream_cancel::StreamExt as _;
 use tap::Pipe;
-use lunarrelay::net::SocketMode;
 
 pub use crate::options::Options;
 
@@ -71,20 +90,21 @@ fn main() -> Result<()> {
             })
             .detach();
 
-            let uplink_sockets = net::socket_stream::<Socket>(options.uplink_address, DEFAULT_BACKOFF.clone(), SocketMode::Connect)
-                .pipe(stream_unwrap!("connecting to uplink socket"));
-
-            let uplink = relay::uplink_stream(
-                uplink_sockets,
-                1024,
+            let uplink_sockets = net::socket_stream::<Socket>(
+                options.uplink_address,
+                DEFAULT_BACKOFF.clone(),
+                SocketMode::Connect,
             )
-            .await
-            .take_until_if(tripwire.clone())
-            .pipe(|s| splittable_stream(s, 1024));
+            .pipe(stream_unwrap!("connecting to uplink socket"));
+
+            let (uplink, uplink_pump) = relay::uplink_stream(uplink_sockets)
+                .await
+                .take_until_if(tripwire.clone())
+                .pipe(|s| splittable_stream(s, 1024));
 
             let packet_io = Arc::new(PacketIO::new(smol::io::BufReader::new(read), write));
 
-            let all_serial = {
+            let raw_serial = {
                 let packet_io = packet_io.clone();
                 packet_io.read_packets(0u8).await
             }
@@ -98,22 +118,32 @@ fn main() -> Result<()> {
             .await
             .for_each(|_| {});
 
+            let serial_relay = wrap_relay_packets(
+                raw_serial,
+                smol::stream::repeat(RealtimeStatus {
+                    memory_usage: 0,
+                    logs_pending: 0,
+                    flags:        Flags::None,
+                }),
+            )
+            .map(|msg| msg.payload_into::<CRCWrap<OpaqueBytes>>())
+            .pipe(stream_unwrap!("serializing relay packet"));
+
             let downlink_packets = relay::assemble_downlink::<Socket>(
                 uplink.clone(),
-                all_serial,
                 relay::dummy_log_downlink(trace_event_stream).take_until_if(tripwire.clone()),
+                serial_relay,
             )
             .await;
 
-            let downlink_sockets = options.downlink_addresses.iter().cloned()
-                .map(|addr| net::socket_stream::<Socket>(addr, DEFAULT_BACKOFF.clone(), SocketMode::Connect).pipe(stream_unwrap!("connecting to downlink socket")));
+            let downlink_sockets = options.downlink_addresses.iter().cloned().map(|addr| {
+                net::socket_stream::<Socket>(addr, DEFAULT_BACKOFF.clone(), SocketMode::Connect)
+                    .pipe(stream_unwrap!("connecting to downlink socket"))
+            });
 
-            let downlink_future = relay::send_downlink::<Socket>(
-                downlink_packets,
-                downlink_sockets,
-            );
+            let downlink = relay::send_downlink::<Socket>(downlink_packets, downlink_sockets);
 
-            smol::future::zip(downlink_future, serial_acks).await;
+            futures::future::join3(downlink, serial_acks, uplink_pump).await;
 
             Ok(())
         }

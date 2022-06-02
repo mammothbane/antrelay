@@ -12,12 +12,25 @@ use tap::Pipe;
 
 use crate::{
     message::{
-        crc_wrap::Ack,
+        crc_wrap::{
+            Ack,
+            RealtimeStatus,
+        },
+        header::{
+            Destination,
+            Kind,
+            Source,
+            Type,
+        },
+        payload::RelayPacket,
+        CRCWrap,
+        Header,
         Message,
         OpaqueBytes,
     },
     packet_io::PacketIO,
     stream_unwrap,
+    MissionEpoch,
 };
 
 #[tracing::instrument]
@@ -88,4 +101,30 @@ where
             ))
         })
         .pipe(stream_unwrap!("no ack from serial connection"))
+}
+
+#[inline]
+#[tracing::instrument(skip_all)]
+pub fn wrap_relay_packets(
+    packets: impl Stream<Item = Vec<u8>>,
+    status: impl Stream<Item = RealtimeStatus>,
+) -> impl Stream<Item = Message<RelayPacket>> {
+    packets.zip(status).map(|(packet, status)| Message {
+        header:  Header {
+            magic:       Default::default(),
+            destination: Destination::Ground,
+            timestamp:   MissionEpoch::now(),
+            seq:         0, // TODO
+            ty:          Type {
+                ack:                   false,
+                acked_message_invalid: false,
+                source:                Source::Frontend,
+                kind:                  Kind::Relay,
+            },
+        },
+        payload: CRCWrap::new(RelayPacket {
+            header:  status,
+            payload: packet,
+        }),
+    })
 }

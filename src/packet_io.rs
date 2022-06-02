@@ -14,8 +14,6 @@ use smol::{
     stream::StreamExt,
 };
 use std::sync::Arc;
-use tap::Pipe;
-use tracing::Span;
 
 use crate::{
     message::{
@@ -25,7 +23,6 @@ use crate::{
         OpaqueBytes,
         UniqueId,
     },
-    stream_unwrap,
     trace_catch,
 };
 
@@ -72,25 +69,19 @@ impl<R, W> PacketIO<R, W> {
     }
 
     #[tracing::instrument(skip(self), level = "debug")]
-    pub async fn read_packets(
-        self: Arc<Self>,
-        sentinel: u8,
-    ) -> impl Stream<Item = Message<OpaqueBytes>>
+    pub async fn read_packets(self: Arc<Self>, sentinel: u8) -> impl Stream<Item = Vec<u8>>
     where
         R: AsyncBufRead + Unpin + 'static,
         W: 'static,
     {
-        let span = Span::current();
-
-        smol::stream::unfold((Vec::with_capacity(8192), self.clone()), move |(mut buf, s)| {
+        smol::stream::unfold((Vec::with_capacity(8192), self), move |(mut buf, s)| {
             buf.truncate(0);
 
             Box::pin(async move {
-                let mut r = s.r.lock().await;
-
                 tracing::trace!("waiting for serial message");
 
                 let count: usize = {
+                    let mut r = s.r.lock().await;
                     let result = r.read_until(sentinel, &mut buf).await;
                     trace_catch!(result, "receiving serial message");
 
@@ -112,26 +103,20 @@ impl<R, W> PacketIO<R, W> {
                     }
                 };
 
-                let packet = <Message<OpaqueBytes> as PackedStructSlice>::unpack_from_slice(data);
-                drop(r);
+                trace_catch!(s.handle_ack(&data), "handling message as ack");
 
-                Some((packet, (buf, s)))
+                Some((data.to_vec(), (buf, s)))
             })
         })
         .fuse()
-        .pipe(stream_unwrap!(parent: &span, "reading message over serial"))
-        .map(move |msg| {
-            tracing::debug!(msg.header = %msg.header.display(), %msg.payload, "message from serial");
-
-            if msg.header.ty.ack {
-                trace_catch!(self.handle_ack(&msg), "parsing ack message");
-            }
-
-            msg
-        })
     }
 
-    fn handle_ack(&self, msg: &Message<OpaqueBytes>) -> eyre::Result<()> {
+    fn handle_ack(&self, data: &[u8]) -> eyre::Result<()> {
+        let msg = <Message<OpaqueBytes> as PackedStructSlice>::unpack_from_slice(data)?;
+        if !msg.header.ty.ack {
+            return Ok(());
+        }
+
         let ack = msg.payload_into::<CRCWrap<Ack>>().wrap_err("parsing ack message")?;
         let message_id = ack.payload.as_ref().unique_id();
 
