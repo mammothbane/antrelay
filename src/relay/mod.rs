@@ -85,7 +85,7 @@ pub async fn ack_frontend(
                     seq:       pkt.header.seq,
                     checksum:  pkt.payload.checksum()?[0],
                 }),
-            }) as eyre::Result<()>
+            }) as eyre::Result<Message<Ack>>
         })
         .pipe(stream_unwrap!("checksumming message"))
 }
