@@ -12,15 +12,11 @@ use packed_struct::{
 
 use crate::message::{
     checksum,
+    payload::realtime_status::RealtimeStatus,
     Checksum,
     HeaderPacket,
     Message,
     OpaqueBytes,
-};
-
-pub use crate::message::payload::{
-    realtime_status::RealtimeStatus,
-    Ack,
 };
 
 pub type Relay = HeaderPacket<RealtimeStatus, Vec<Message<OpaqueBytes>>>;

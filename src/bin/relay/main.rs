@@ -16,8 +16,10 @@ use structopt::StructOpt as _;
 use lunarrelay::{
     build,
     message::{
-        crc_wrap::RealtimeStatus,
-        payload::realtime_status::Flags,
+        payload::{
+            realtime_status::Flags,
+            RealtimeStatus,
+        },
         CRCWrap,
         OpaqueBytes,
     },
@@ -115,7 +117,6 @@ fn main() -> Result<()> {
                 packet_io,
                 relay::SERIAL_REQUEST_BACKOFF.clone(),
             )
-            .await
             .for_each(|_| {});
 
             let serial_relay = wrap_relay_packets(
@@ -129,12 +130,11 @@ fn main() -> Result<()> {
             .map(|msg| msg.payload_into::<CRCWrap<OpaqueBytes>>())
             .pipe(stream_unwrap!("serializing relay packet"));
 
-            let downlink_packets = relay::assemble_downlink::<Socket>(
+            let downlink_packets = relay::assemble_downlink(
                 uplink.clone(),
                 relay::dummy_log_downlink(trace_event_stream).take_until_if(tripwire.clone()),
                 serial_relay,
-            )
-            .await;
+            );
 
             let downlink_sockets = options.downlink_addresses.iter().cloned().map(|addr| {
                 net::socket_stream::<Socket>(addr, DEFAULT_BACKOFF.clone(), SocketMode::Connect)

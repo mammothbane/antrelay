@@ -1,3 +1,5 @@
+mod command_sequencer;
+
 use crate::message::{
     payload::Ack,
     Message,
@@ -64,24 +66,4 @@ pub fn pack_cobs_stream(
     sentinel: u8,
 ) -> impl Stream<Item = Vec<u8>> {
     s.map(move |packet| cobs::encode_vec_with_sentinel(&packet, sentinel))
-}
-
-#[cfg(feature = "serial_cobs")]
-pub fn packets_to_stream() {}
-
-pub async fn request<T>(
-    w: impl AsyncWrite + Unpin,
-    request: &Message<T>,
-) -> eyre::Result<Message<Ack>>
-where
-    T: PackedStructSlice,
-{
-    let packed = request.pack_to_vec()?;
-
-    {
-        let mut w = w;
-        w.write_all(&packed).await?;
-    }
-
-    Ok(())
 }

@@ -12,17 +12,17 @@ use tap::Pipe;
 
 use crate::{
     message::{
-        crc_wrap::{
-            Ack,
-            RealtimeStatus,
-        },
         header::{
             Destination,
             Kind,
             Source,
             Type,
         },
-        payload::RelayPacket,
+        payload::{
+            realtime_status::RealtimeStatus,
+            Ack,
+            RelayPacket,
+        },
         CRCWrap,
         Header,
         Message,
