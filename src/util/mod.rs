@@ -47,7 +47,6 @@ where
         s.for_each(move |s| {
             trace_catch!(tx.try_broadcast(s), "broadcasting to splittable stream");
         })
-        .instrument(tracing::debug_span!("splittable stream pump"))
         .await;
     };
 

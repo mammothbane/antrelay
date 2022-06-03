@@ -65,20 +65,13 @@ pub fn assemble_serial(
 
     let pump_serial_writer = io::write_packet_stream(serial_requests, writer)
         .pipe(stream_unwrap!("writing packets to serial"))
-        .for_each(|_| {})
-        .instrument(tracing::debug_span!("writing packets to serial"));
+        .for_each(|_| {});
 
-    let packet_handler = serial_responses
-        .pipe(stream_unwrap!("reading from serial"))
-        .for_each(|_| {})
-        .instrument(tracing::debug_span!("reading responses from serial"));
+    let packet_handler =
+        serial_responses.pipe(stream_unwrap!("reading from serial")).for_each(|_| {});
 
     let drive_all = async move {
-        // futures::future::join(pump_serial_writer, packet_handler).await;
         smol::future::zip(pump_serial_writer, packet_handler).await;
-        // pump_serial_writer.await;
-
-        // packet_handler.await;
     };
 
     (cseq, drive_all)

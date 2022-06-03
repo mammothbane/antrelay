@@ -36,16 +36,11 @@ pub async fn send_downlink<Socket>(
                 crate::net::send_packets(stream, split.clone())
                     .pipe(stream_unwrap!("sending downlink packet"))
                     .for_each(|_| {})
-                    .instrument(tracing::debug_span!("downlink single socket packet relaying"))
             })
             .collect::<Vec<_>>()
     };
 
-    smol::future::zip(
-        pump.instrument(tracing::debug_span!("downlink pump")),
-        futures::future::join_all(s).instrument(tracing::debug_span!("downlink packet relaying")),
-    )
-    .await;
+    smol::future::zip(pump, futures::future::join_all(s)).await;
 }
 
 #[tracing::instrument(skip_all)]

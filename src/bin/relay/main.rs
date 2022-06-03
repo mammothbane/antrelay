@@ -155,7 +155,6 @@ fn main() -> Result<()> {
                         s,
                         Box::pin(async move {
                             tripwire.recv().await.unwrap_err();
-                            tracing::debug!("trace downlink done");
                         }),
                     )
                 }),
@@ -170,11 +169,11 @@ fn main() -> Result<()> {
             let downlink = relay::send_downlink::<Socket>(downlink_packets, downlink_sockets);
 
             futures::future::join5(
-                drive_serial.instrument(tracing::debug_span!("serial drive")),
-                pump_serial_reader.instrument(tracing::debug_span!("serial pump")),
-                relay_uplink.instrument(tracing::debug_span!("uplink to serial relay")),
-                uplink_pump.instrument(tracing::debug_span!("uplink pump")),
-                downlink.instrument(tracing::debug_span!("downlink")),
+                drive_serial,
+                pump_serial_reader,
+                relay_uplink,
+                uplink_pump,
+                downlink,
             )
             .await;
 

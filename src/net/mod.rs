@@ -124,19 +124,10 @@ where
                 let mut sockets = sockets.borrow_mut();
 
                 if sock.is_none() {
-                    *sock = sockets
-                        .next()
-                        .instrument(tracing::debug_span!("get new socket"))
-                        .await
-                        .map(Arc::new);
+                    *sock = sockets.next().await.map(Arc::new);
                 }
 
-                let result = sock
-                    .as_mut()?
-                    .send(&pkt)
-                    .instrument(tracing::debug_span!("send data to socket"))
-                    .await
-                    .map(|_| ());
+                let result = sock.as_mut()?.send(&pkt).await.map(|_| ());
 
                 Some(result)
             }
