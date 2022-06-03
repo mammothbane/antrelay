@@ -20,6 +20,7 @@ pub mod message;
 pub mod net;
 pub mod relay;
 pub mod signals;
+pub mod standard_graph;
 pub mod tracing;
 pub mod util;
 

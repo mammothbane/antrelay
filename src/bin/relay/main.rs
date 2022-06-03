@@ -8,6 +8,7 @@
 #![deny(unsafe_code)]
 
 use eyre::Result;
+use packed_struct::PackedStructSlice;
 use smol::stream::StreamExt as _;
 use structopt::StructOpt as _;
 
@@ -28,8 +29,12 @@ use lunarrelay::{
         DEFAULT_BACKOFF,
     },
     relay,
-    relay::wrap_relay_packets,
+    relay::{
+        dummy_log_downlink,
+        wrap_relay_packets,
+    },
     signals,
+    standard_graph,
     stream_unwrap,
     util::splittable_stream,
 };
@@ -95,65 +100,26 @@ fn main() -> Result<()> {
             )
             .pipe(stream_unwrap!("connecting to uplink socket"));
 
-            let (uplink, uplink_pump) = relay::uplink_stream(uplink_sockets)
+            let uplink = relay::uplink_stream(uplink_sockets)
                 .await
                 .pipe(lunarrelay::trip!(tripwire))
-                .pipe(|s| splittable_stream(s, 1024));
-
-            // TODO: handle cobs
-            let (read_packets, pump_serial_reader) = reader
-                .pipe(|r| io::split_packets(smol::io::BufReader::new(r), 0, 8192))
-                .pipe(stream_unwrap!("splitting serial packet"))
-                .pipe(|s| io::unpack_cobs_stream(s, 0))
-                .pipe(stream_unwrap!("unwrapping cobs"))
-                .pipe(lunarrelay::trip!(tripwire))
-                .pipe(|s| splittable_stream(s, 1024));
-
-            let (cseq, drive_serial) =
-                relay::assemble_serial(read_packets.clone(), writer, tripwire.clone());
-
-            let relay_uplink = relay::relay_uplink_to_serial(
-                uplink.clone(),
-                &cseq,
-                relay::SERIAL_REQUEST_BACKOFF.clone(),
-            )
-            .for_each(|_| {});
-
-            let serial_relay = wrap_relay_packets(
-                read_packets,
-                smol::stream::repeat(RealtimeStatus {
-                    memory_usage: 0,
-                    logs_pending: 0,
-                    flags:        Flags::None,
-                }),
-            )
-            .map(|msg| msg.payload_into::<CRCWrap<OpaqueBytes>>())
-            .pipe(stream_unwrap!("serializing relay packet"));
-
-            let downlink_packets = relay::assemble_downlink(
-                uplink.clone(),
-                relay::dummy_log_downlink(trace_event_stream)
-                    .pipe(lunarrelay::trip!(noclone tripwire)),
-                serial_relay,
-            );
+                .map(|msg| msg.pack_to_vec())
+                .pipe(stream_unwrap!("unpacking message"));
 
             let downlink_sockets = options.downlink_addresses.iter().cloned().map(|addr| {
                 net::socket_stream::<Socket>(addr, DEFAULT_BACKOFF.clone(), SocketMode::Connect)
                     .pipe(stream_unwrap!("connecting to downlink socket"))
             });
 
-            let downlink = relay::send_downlink::<Socket>(downlink_packets, downlink_sockets);
-
-            futures::future::join5(
-                drive_serial,
-                pump_serial_reader,
-                relay_uplink,
-                uplink_pump,
-                downlink,
+            standard_graph::run(
+                reader,
+                writer,
+                uplink,
+                dummy_log_downlink(trace_event_stream),
+                downlink_sockets,
+                tripwire,
             )
             .await;
-
-            tracing::debug!("done");
 
             Ok(())
         }
