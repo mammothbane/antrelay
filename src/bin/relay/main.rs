@@ -10,11 +10,11 @@ extern crate core;
 
 use eyre::Result;
 use smol::stream::StreamExt;
-use std::sync::Arc;
 use structopt::StructOpt as _;
 
 use lunarrelay::{
     build,
+    io,
     message::{
         payload::{
             realtime_status::Flags,
@@ -28,7 +28,6 @@ use lunarrelay::{
         SocketMode,
         DEFAULT_BACKOFF,
     },
-    packet_io::PacketIO,
     relay,
     relay::wrap_relay_packets,
     signals,
@@ -82,7 +81,7 @@ fn main() -> Result<()> {
             #[cfg(unix)]
             util::dynload::apply_patches(&options.lib_dir).await;
 
-            let (read, write) = relay::connect_serial(options.serial_port, options.baud).await?;
+            let (reader, writer) = relay::connect_serial(options.serial_port, options.baud).await?;
 
             let (trigger, tripwire) = stream_cancel::Tripwire::new();
 
@@ -104,23 +103,26 @@ fn main() -> Result<()> {
                 .take_until_if(tripwire.clone())
                 .pipe(|s| splittable_stream(s, 1024));
 
-            let packet_io = Arc::new(PacketIO::new(smol::io::BufReader::new(read), write));
+            // TODO: handle cobs
+            let (read_packets, pump_serial_reader) = reader
+                .pipe(|r| io::split_packets(smol::io::BufReader::new(r), 0, 8192))
+                .pipe(stream_unwrap!("splitting serial packet"))
+                .pipe(|s| io::unpack_cobs_stream(s, 0))
+                .pipe(stream_unwrap!("unwrapping cobs"))
+                .take_until_if(tripwire.clone())
+                .pipe(|s| splittable_stream(s, 1024));
 
-            let raw_serial = {
-                let packet_io = packet_io.clone();
-                packet_io.read_packets(0u8).await
-            }
-            .take_until_if(tripwire.clone());
+            let (cseq, drive_serial) = relay::assemble_serial(read_packets.clone(), writer);
 
-            let serial_acks = relay::relay_uplink_to_serial(
+            let relay_uplink = relay::relay_uplink_to_serial(
                 uplink.clone(),
-                packet_io,
+                &cseq,
                 relay::SERIAL_REQUEST_BACKOFF.clone(),
             )
             .for_each(|_| {});
 
             let serial_relay = wrap_relay_packets(
-                raw_serial,
+                read_packets,
                 smol::stream::repeat(RealtimeStatus {
                     memory_usage: 0,
                     logs_pending: 0,
@@ -143,7 +145,14 @@ fn main() -> Result<()> {
 
             let downlink = relay::send_downlink::<Socket>(downlink_packets, downlink_sockets);
 
-            futures::future::join3(downlink, serial_acks, uplink_pump).await;
+            futures::future::join5(
+                downlink,
+                drive_serial,
+                pump_serial_reader,
+                relay_uplink,
+                uplink_pump,
+            )
+            .await;
 
             Ok(())
         }

@@ -10,10 +10,7 @@ use crate::{
         Message,
         OpaqueBytes,
     },
-    net::{
-        DatagramReceiver,
-        DatagramSender,
-    },
+    net::DatagramSender,
     stream_unwrap,
     util,
     util::splittable_stream,

@@ -964,7 +964,6 @@ dependencies = [
  "tracing-log",
  "tracing-subscriber",
  "tracing-unwrap",
- "typenum",
  "vergen",
 ]
 
@@ -1849,12 +1848,6 @@ checksum = "7908a5f1475756bd7f81d6fe7e3607f13b33562c3ec8f9fb7502df790350f74a"
 dependencies = [
  "tracing",
 ]
-
-[[package]]
-name = "typenum"
-version = "1.15.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dcf81ac59edc17cc8697ff311e8f5ef2d99fcbd9817b34cec66f90b6c3dfd987"
 
 [[package]]
 name = "unicode-bidi"

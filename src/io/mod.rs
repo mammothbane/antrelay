@@ -1,23 +1,16 @@
+use eyre::WrapErr;
+use smol::{
+    io::AsyncWrite,
+    prelude::*,
+};
+use std::{
+    cell::RefCell,
+    rc::Rc,
+};
+
 mod command_sequencer;
 
-use crate::message::{
-    payload::Ack,
-    Message,
-};
-use eyre::WrapErr;
-use futures::AsyncWriteExt;
-use packed_struct::PackedStructSlice;
-use smol::{
-    io::{
-        AsyncBufRead,
-        AsyncBufReadExt as _,
-        AsyncWrite,
-    },
-    stream::{
-        Stream,
-        StreamExt,
-    },
-};
+pub use command_sequencer::CommandSequencer;
 
 #[tracing::instrument(skip(r), level = "debug")]
 pub fn split_packets(
@@ -66,4 +59,23 @@ pub fn pack_cobs_stream(
     sentinel: u8,
 ) -> impl Stream<Item = Vec<u8>> {
     s.map(move |packet| cobs::encode_vec_with_sentinel(&packet, sentinel))
+}
+
+pub fn write_packet_stream(
+    s: impl Stream<Item = Vec<u8>>,
+    w: impl AsyncWrite + Unpin + 'static,
+) -> impl Stream<Item = eyre::Result<()>> {
+    let w = Rc::new(RefCell::new(w));
+
+    s.then(move |pkt| {
+        let w = w.clone();
+
+        async move {
+            let mut w = w.borrow_mut();
+
+            let pkt = pkt;
+            w.write_all(&pkt).await
+        }
+    })
+    .map(|result| result.map_err(eyre::Report::from))
 }

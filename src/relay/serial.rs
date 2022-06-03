@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use async_std::prelude::Stream;
 use backoff::backoff::Backoff;
 use eyre::WrapErr;
@@ -7,10 +5,14 @@ use futures::{
     AsyncRead,
     AsyncWrite,
 };
-use smol::stream::StreamExt;
+use smol::prelude::*;
 use tap::Pipe;
 
 use crate::{
+    io::{
+        self,
+        CommandSequencer,
+    },
     message::{
         header::{
             Destination,
@@ -28,8 +30,8 @@ use crate::{
         Message,
         OpaqueBytes,
     },
-    packet_io::PacketIO,
     stream_unwrap,
+    util::splittable_stream,
     MissionEpoch,
 };
 
@@ -48,14 +50,35 @@ pub async fn connect_serial(
 }
 
 #[tracing::instrument(skip_all)]
-pub fn relay_uplink_to_serial<'a, 'u, R, W>(
+pub fn assemble_serial(
+    reader: impl Stream<Item = Vec<u8>> + Unpin,
+    writer: impl AsyncWrite + Unpin + 'static,
+) -> (CommandSequencer, impl Future<Output = ()>) {
+    let (cseq, packet_handler, serial_packets) = CommandSequencer::new(reader);
+
+    let serial_packets = serial_packets.pipe(|s| io::pack_cobs_stream(s, 0));
+
+    let pump_serial_writer = io::write_packet_stream(serial_packets, writer)
+        .pipe(stream_unwrap!("writing packets to serial"))
+        .for_each(|_| {});
+
+    let packet_handler =
+        packet_handler.pipe(stream_unwrap!("reading from serial")).for_each(|_| {});
+
+    let drive_all = async move {
+        smol::future::zip(pump_serial_writer, packet_handler).await;
+    };
+
+    (cseq, drive_all)
+}
+
+#[tracing::instrument(skip_all)]
+pub fn relay_uplink_to_serial<'a, 'u>(
     uplink: impl Stream<Item = Message<OpaqueBytes>> + 'u,
-    packetio: Arc<PacketIO<R, W>>,
+    csq: &'a CommandSequencer,
     request_backoff: impl Backoff + Clone + 'static,
 ) -> impl Stream<Item = Message<Ack>> + 'a
 where
-    W: AsyncWrite + Unpin + 'u,
-    R: 'a,
     'u: 'a,
 {
     uplink
@@ -67,18 +90,17 @@ where
         })
         .pipe(stream_unwrap!("computing incoming message checksum"))
         .then(move |(msg, crc): (Message<OpaqueBytes>, Vec<u8>)| {
-            let packetio = packetio.clone();
+            let csq = csq;
 
             Box::pin(backoff::future::retry_notify(
                 request_backoff.clone(),
                 move || {
                     let msg = msg.clone();
                     let crc = crc.clone();
-                    let packetio = packetio.clone();
+                    let csq = csq;
 
                     async move {
-                        let g = packetio.request(&msg).await.wrap_err("sending serial request")?;
-                        let ret = g.wait().await.wrap_err("receiving serial response")?;
+                        let ret = csq.submit(&msg).await.wrap_err("sending command to serial")?;
 
                         if ret.header.ty.acked_message_invalid {
                             return Err(backoff::Error::transient(eyre::eyre!(

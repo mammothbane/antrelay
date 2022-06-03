@@ -1,8 +1,5 @@
-use num_traits::Unsigned;
 use packed_struct::prelude::*;
-use std::marker::PhantomData;
 use tap::Conv;
-use typenum::Bit;
 
 use crate::{
     message::{

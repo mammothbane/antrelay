@@ -15,7 +15,6 @@ pub mod build;
 pub mod io;
 pub mod message;
 pub mod net;
-pub mod packet_io;
 pub mod relay;
 pub mod signals;
 pub mod tracing;
