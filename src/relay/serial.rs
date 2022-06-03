@@ -1,8 +1,3 @@
-use std::{
-    cell::RefCell,
-    rc::Rc,
-};
-
 use async_std::prelude::Stream;
 use backoff::backoff::Backoff;
 use eyre::WrapErr;
@@ -36,6 +31,7 @@ use crate::{
         OpaqueBytes,
     },
     stream_unwrap,
+    trip,
     MissionEpoch,
 };
 
@@ -57,10 +53,12 @@ pub async fn connect_serial(
 pub fn assemble_serial(
     reader: impl Stream<Item = Vec<u8>> + Unpin,
     writer: impl AsyncWrite + Unpin + 'static,
+    done: smol::channel::Receiver<!>,
 ) -> (CommandSequencer, impl Future<Output = ()>) {
     let (cseq, serial_responses, serial_requests) = CommandSequencer::new(reader);
 
-    let serial_requests = serial_requests.pipe(|s| io::pack_cobs_stream(s, 0));
+    let serial_requests =
+        serial_requests.pipe(|s| io::pack_cobs_stream(s, 0)).pipe(trip!(noclone done));
 
     let pump_serial_writer = io::write_packet_stream(serial_requests, writer)
         .pipe(stream_unwrap!("writing packets to serial"))
@@ -77,13 +75,15 @@ pub fn assemble_serial(
 }
 
 #[tracing::instrument(skip_all)]
-pub fn relay_uplink_to_serial(
-    uplink: impl Stream<Item = Message<OpaqueBytes>>,
-    csq: CommandSequencer,
-    request_backoff: impl Backoff + Clone + 'static,
-) -> impl Stream<Item = Message<Ack>> {
-    let csq = Rc::new(RefCell::new(csq));
-
+pub fn relay_uplink_to_serial<'a, 'u, 'b>(
+    uplink: impl Stream<Item = Message<OpaqueBytes>> + 'u,
+    csq: &'a CommandSequencer,
+    request_backoff: impl Backoff + Clone + 'b,
+) -> impl Stream<Item = Message<Ack>> + 'a
+where
+    'u: 'a,
+    'b: 'a,
+{
     uplink
         .filter(|msg| msg.header.destination != Destination::Frontend)
         .map(|msg| -> eyre::Result<_> {
@@ -93,18 +93,16 @@ pub fn relay_uplink_to_serial(
         })
         .pipe(stream_unwrap!("computing incoming message checksum"))
         .then(move |(msg, crc): (Message<OpaqueBytes>, Vec<u8>)| {
-            let csq = &csq;
-            let csq = csq.clone();
+            let csq = csq;
 
             Box::pin(backoff::future::retry_notify(
                 request_backoff.clone(),
                 move || {
                     let msg = msg.clone();
                     let crc = crc.clone();
-                    let csq = csq.clone();
+                    let csq = csq;
 
                     async move {
-                        let csq = csq.as_ref().borrow();
                         let ret = csq.submit(&msg).await.wrap_err("sending command to serial")?;
 
                         if ret.header.ty.acked_message_invalid {

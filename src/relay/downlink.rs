@@ -16,7 +16,7 @@ use crate::{
     util::splittable_stream,
 };
 
-#[tracing::instrument(skip_all, level = "debug")]
+#[tracing::instrument(skip_all, level = "trace")]
 pub async fn send_downlink<Socket>(
     packets: impl Stream<Item = Vec<u8>> + Unpin + Send + 'static,
     streams: impl IntoIterator<Item = impl Stream<Item = Socket> + Unpin + 'static>,

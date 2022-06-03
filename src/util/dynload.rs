@@ -1,3 +1,5 @@
+#![allow(unsafe_code)]
+
 use std::{
     os::unix::ffi::OsStrExt as _,
     path::Path,
@@ -5,8 +7,6 @@ use std::{
 
 use smol::stream::StreamExt;
 use tap::Pipe;
-
-use crate::util::log_and_discard_errors;
 
 #[tracing::instrument(fields(path = %dir.as_ref().display()), skip(dir))]
 pub async fn apply_patches(dir: impl AsRef<Path>) {
@@ -20,7 +20,7 @@ pub async fn apply_patches(dir: impl AsRef<Path>) {
 
     let paths = {
         let mut paths = dir
-            .pipe(|s| log_and_discard_errors(s, "reading dir entry"))
+            .pipe(crate::stream_unwrap!("reading dir entry"))
             .map(|ent| ent.file_name())
             .filter(|name| name.as_bytes().ends_with(b".so"))
             .collect::<Vec<_>>()

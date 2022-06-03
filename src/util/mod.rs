@@ -9,7 +9,10 @@ use smol::stream::{
     StreamExt,
 };
 
-use crate::message::Message;
+use crate::{
+    message::Message,
+    trace_catch,
+};
 
 #[cfg(unix)]
 pub mod dynload;
@@ -51,50 +54,6 @@ where
 
     (rx, pump)
 }
-
-#[macro_export]
-macro_rules! stream_unwrap {
-    (parent: $parent:expr, $($args:tt)*) => {
-        |s| s.filter_map(move |x| {
-            $crate::trace_catch!(parent: $parent, x, $($args)*);
-
-            x.ok()
-        })
-    };
-
-    ($($args:tt)*) => {
-        |s| s.filter_map(move |x| {
-            $crate::trace_catch!(x, $($args)*);
-
-            x.ok()
-        })
-    };
-}
-
-#[macro_export]
-macro_rules! bootstrap {
-    ($x:expr $( , $xs:expr )* $(,)?) => {
-        eprintln!(concat!("[bootstrap] ", $x) $( , $xs )*)
-    };
-}
-
-#[macro_export]
-macro_rules! trace_catch {
-    (parent: $parent:expr, $val:expr, $($rest:tt)*) => {
-        if let Err(ref e) = $val {
-            ::tracing::error!(parent: $parent, error = %e, $($rest)*);
-        }
-    };
-
-    ($val:expr, $($rest:tt)*) => {
-        if let Err(ref e) = $val {
-            ::tracing::error!(error = %e, $($rest)*);
-        }
-    };
-}
-
-pub use bootstrap;
-pub use trace_catch;
 
 #[inline]
 #[tracing::instrument(skip_all, level = "trace")]
