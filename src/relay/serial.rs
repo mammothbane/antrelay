@@ -1,3 +1,8 @@
+use std::{
+    cell::RefCell,
+    rc::Rc,
+};
+
 use async_std::prelude::Stream;
 use backoff::backoff::Backoff;
 use eyre::WrapErr;
@@ -7,6 +12,7 @@ use futures::{
 };
 use smol::prelude::*;
 use tap::Pipe;
+use tracing::Instrument;
 
 use crate::{
     io::{
@@ -31,11 +37,10 @@ use crate::{
         OpaqueBytes,
     },
     stream_unwrap,
-    util::splittable_stream,
     MissionEpoch,
 };
 
-#[tracing::instrument]
+#[tracing::instrument(level = "debug")]
 pub async fn connect_serial(
     path: String,
     baud: u32,
@@ -49,38 +54,44 @@ pub async fn connect_serial(
     Ok(smol::io::split(stream))
 }
 
-#[tracing::instrument(skip_all)]
+#[tracing::instrument(skip_all, level = "debug")]
 pub fn assemble_serial(
     reader: impl Stream<Item = Vec<u8>> + Unpin,
     writer: impl AsyncWrite + Unpin + 'static,
 ) -> (CommandSequencer, impl Future<Output = ()>) {
-    let (cseq, packet_handler, serial_packets) = CommandSequencer::new(reader);
+    let (cseq, serial_responses, serial_requests) = CommandSequencer::new(reader);
 
-    let serial_packets = serial_packets.pipe(|s| io::pack_cobs_stream(s, 0));
+    let serial_requests = serial_requests.pipe(|s| io::pack_cobs_stream(s, 0));
 
-    let pump_serial_writer = io::write_packet_stream(serial_packets, writer)
+    let pump_serial_writer = io::write_packet_stream(serial_requests, writer)
         .pipe(stream_unwrap!("writing packets to serial"))
-        .for_each(|_| {});
+        .for_each(|_| {})
+        .instrument(tracing::debug_span!("writing packets to serial"));
 
-    let packet_handler =
-        packet_handler.pipe(stream_unwrap!("reading from serial")).for_each(|_| {});
+    let packet_handler = serial_responses
+        .pipe(stream_unwrap!("reading from serial"))
+        .for_each(|_| {})
+        .instrument(tracing::debug_span!("reading responses from serial"));
 
     let drive_all = async move {
+        // futures::future::join(pump_serial_writer, packet_handler).await;
         smol::future::zip(pump_serial_writer, packet_handler).await;
+        // pump_serial_writer.await;
+
+        // packet_handler.await;
     };
 
     (cseq, drive_all)
 }
 
 #[tracing::instrument(skip_all)]
-pub fn relay_uplink_to_serial<'a, 'u>(
-    uplink: impl Stream<Item = Message<OpaqueBytes>> + 'u,
-    csq: &'a CommandSequencer,
+pub fn relay_uplink_to_serial(
+    uplink: impl Stream<Item = Message<OpaqueBytes>>,
+    csq: CommandSequencer,
     request_backoff: impl Backoff + Clone + 'static,
-) -> impl Stream<Item = Message<Ack>> + 'a
-where
-    'u: 'a,
-{
+) -> impl Stream<Item = Message<Ack>> {
+    let csq = Rc::new(RefCell::new(csq));
+
     uplink
         .filter(|msg| msg.header.destination != Destination::Frontend)
         .map(|msg| -> eyre::Result<_> {
@@ -90,16 +101,18 @@ where
         })
         .pipe(stream_unwrap!("computing incoming message checksum"))
         .then(move |(msg, crc): (Message<OpaqueBytes>, Vec<u8>)| {
-            let csq = csq;
+            let csq = &csq;
+            let csq = csq.clone();
 
             Box::pin(backoff::future::retry_notify(
                 request_backoff.clone(),
                 move || {
                     let msg = msg.clone();
                     let crc = crc.clone();
-                    let csq = csq;
+                    let csq = csq.clone();
 
                     async move {
+                        let csq = csq.as_ref().borrow();
                         let ret = csq.submit(&msg).await.wrap_err("sending command to serial")?;
 
                         if ret.header.ty.acked_message_invalid {

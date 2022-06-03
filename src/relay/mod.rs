@@ -97,7 +97,7 @@ pub fn dummy_log_downlink(
 ) -> impl Stream<Item = Message<OpaqueBytes>> {
     let span = Span::current();
 
-    s.pipe(|s| futures::stream::StreamExt::chunks(s, 5))
+    s.pipe(|s| futures::stream::StreamExt::chunks(s, 2))
         .map(|evts| -> eyre::Result<Message<OpaqueBytes>> {
             let payload = bincode::serialize(&evts)?;
             let wrapped_payload = CRCWrap::<Vec<u8>>::new(payload);

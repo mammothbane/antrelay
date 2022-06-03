@@ -1,11 +1,12 @@
+use std::{
+    cell::RefCell,
+    rc::Rc,
+};
+
 use eyre::WrapErr;
 use smol::{
     io::AsyncWrite,
     prelude::*,
-};
-use std::{
-    cell::RefCell,
-    rc::Rc,
 };
 
 mod command_sequencer;
@@ -61,6 +62,7 @@ pub fn pack_cobs_stream(
     s.map(move |packet| cobs::encode_vec_with_sentinel(&packet, sentinel))
 }
 
+#[tracing::instrument(skip_all, level = "debug")]
 pub fn write_packet_stream(
     s: impl Stream<Item = Vec<u8>>,
     w: impl AsyncWrite + Unpin + 'static,

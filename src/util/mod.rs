@@ -8,6 +8,7 @@ use smol::stream::{
     Stream,
     StreamExt,
 };
+use tracing::Instrument;
 
 use crate::message::Message;
 
@@ -37,19 +38,20 @@ where
         let (mut tx, rx) = async_broadcast::broadcast(buffer);
         tx.set_overflow(true);
 
-        (tx, rx.deactivate())
+        (tx, rx)
     };
 
     let pump = async move {
         let tx = tx;
 
-        s.for_each(|s| {
+        s.for_each(move |s| {
             trace_catch!(tx.try_broadcast(s), "broadcasting to splittable stream");
         })
+        .instrument(tracing::debug_span!("splittable stream pump"))
         .await;
     };
 
-    (rx.activate_cloned(), pump)
+    (rx, pump)
 }
 
 #[macro_export]

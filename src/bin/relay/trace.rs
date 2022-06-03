@@ -12,7 +12,7 @@ use lunarrelay::bootstrap;
 pub fn init() -> eyre::Result<impl Stream<Item = lunarrelay::tracing::Event>> {
     let stderr_layer = tracing_subscriber::fmt::layer()
         .with_writer(std::io::stderr)
-        .with_span_events(FmtSpan::CLOSE);
+        .with_span_events(FmtSpan::FULL ^ FmtSpan::NEW);
 
     let stderr_layer = {
         cfg_if::cfg_if! {

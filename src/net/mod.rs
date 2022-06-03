@@ -1,5 +1,8 @@
 use std::{
-    cell::RefCell,
+    cell::{
+        RefCell,
+        RefMut,
+    },
     error::Error,
     fmt::Display,
     sync::Arc,
@@ -12,7 +15,10 @@ use smol::stream::{
     StreamExt,
 };
 use tap::Pipe;
-use tracing::Span;
+use tracing::{
+    Instrument,
+    Span,
+};
 
 use crate::stream_unwrap;
 
@@ -67,7 +73,7 @@ where
     })
 }
 
-#[tracing::instrument(skip_all)]
+#[tracing::instrument(skip_all, level = "debug")]
 pub fn receive_packets<Socket>(
     sockets: impl Stream<Item = Socket> + Unpin,
 ) -> impl Stream<Item = Vec<u8>> + Unpin
@@ -92,7 +98,7 @@ where
         .pipe(stream_unwrap!(parent: &span, "reading from socket"))
 }
 
-#[tracing::instrument(skip_all)]
+#[tracing::instrument(skip_all, level = "debug")]
 pub fn send_packets<Socket>(
     sockets: impl Stream<Item = Socket> + Unpin,
     packets: impl Stream<Item = Vec<u8>>,
@@ -101,32 +107,41 @@ where
     Socket: DatagramSender,
     Socket::Error: Error,
 {
-    packets.pipe(|s| {
-        futures::StreamExt::scan(
-            s,
-            (Arc::new(RefCell::new(sockets)), Arc::new(RefCell::new(None))),
-            |(sockets, sock), pkt| {
-                let sock = sock.clone();
-                let sockets = sockets.clone();
+    tracing::debug!("waow starting");
 
-                async move {
-                    let sock = sock;
-                    let sockets = sockets;
+    futures::StreamExt::scan(
+        packets,
+        (Arc::new(RefCell::new(sockets)), Arc::new(RefCell::new(None))),
+        |(sockets, sock), pkt| {
+            let sock = sock.clone();
+            let sockets = sockets.clone();
 
-                    let mut sock = sock.borrow_mut();
-                    let mut sockets = sockets.borrow_mut();
+            async move {
+                let sock = sock;
+                let sockets = sockets;
 
-                    if sock.is_none() {
-                        *sock = sockets.next().await.map(Arc::new);
-                    }
+                let mut sock: RefMut<Option<Arc<Socket>>> = sock.borrow_mut();
+                let mut sockets = sockets.borrow_mut();
 
-                    let result = sock.as_mut()?.send(&pkt).await.map(|_| ());
-
-                    Some(result)
+                if sock.is_none() {
+                    *sock = sockets
+                        .next()
+                        .instrument(tracing::debug_span!("get new socket"))
+                        .await
+                        .map(Arc::new);
                 }
-            },
-        )
-    })
+
+                let result = sock
+                    .as_mut()?
+                    .send(&pkt)
+                    .instrument(tracing::debug_span!("send data to socket"))
+                    .await
+                    .map(|_| ());
+
+                Some(result)
+            }
+        },
+    )
 }
 
 lazy_static::lazy_static! {

@@ -6,10 +6,8 @@
 #![feature(explicit_generic_args_with_impl_trait)]
 #![feature(iter_intersperse)]
 
-extern crate core;
-
 use eyre::Result;
-use smol::stream::StreamExt;
+use smol::stream::StreamExt as _;
 use structopt::StructOpt as _;
 
 use lunarrelay::{
@@ -35,8 +33,8 @@ use lunarrelay::{
     util,
     util::splittable_stream,
 };
-use stream_cancel::StreamExt as _;
 use tap::Pipe;
+use tracing::Instrument;
 
 pub use crate::options::Options;
 
@@ -83,11 +81,11 @@ fn main() -> Result<()> {
 
             let (reader, writer) = relay::connect_serial(options.serial_port, options.baud).await?;
 
-            let (trigger, tripwire) = stream_cancel::Tripwire::new();
+            let (trigger, tripwire) = smol::channel::bounded::<!>(1);
 
             smol::spawn(async move {
                 signal_done.recv().await.unwrap_err();
-                trigger.cancel()
+                trigger.close();
             })
             .detach();
 
@@ -100,7 +98,15 @@ fn main() -> Result<()> {
 
             let (uplink, uplink_pump) = relay::uplink_stream(uplink_sockets)
                 .await
-                .take_until_if(tripwire.clone())
+                .pipe(|s| {
+                    let tripwire = tripwire.clone();
+
+                    futures::stream::StreamExt::take_until(s, async move {
+                        let tripwire = tripwire.clone();
+                        tripwire.recv().await.unwrap_err();
+                        tracing::debug!("uplink reading complete");
+                    })
+                })
                 .pipe(|s| splittable_stream(s, 1024));
 
             // TODO: handle cobs
@@ -109,14 +115,22 @@ fn main() -> Result<()> {
                 .pipe(stream_unwrap!("splitting serial packet"))
                 .pipe(|s| io::unpack_cobs_stream(s, 0))
                 .pipe(stream_unwrap!("unwrapping cobs"))
-                .take_until_if(tripwire.clone())
+                .pipe(|s| {
+                    let tripwire = tripwire.clone();
+
+                    futures::stream::StreamExt::take_until(s, async move {
+                        let tripwire = tripwire.clone();
+                        tripwire.recv().await.unwrap_err();
+                        tracing::debug!("serial packet reading complete");
+                    })
+                })
                 .pipe(|s| splittable_stream(s, 1024));
 
             let (cseq, drive_serial) = relay::assemble_serial(read_packets.clone(), writer);
 
             let relay_uplink = relay::relay_uplink_to_serial(
                 uplink.clone(),
-                &cseq,
+                cseq,
                 relay::SERIAL_REQUEST_BACKOFF.clone(),
             )
             .for_each(|_| {});
@@ -134,7 +148,17 @@ fn main() -> Result<()> {
 
             let downlink_packets = relay::assemble_downlink(
                 uplink.clone(),
-                relay::dummy_log_downlink(trace_event_stream).take_until_if(tripwire.clone()),
+                relay::dummy_log_downlink(trace_event_stream).pipe(move |s| {
+                    let tripwire = tripwire;
+
+                    futures::stream::StreamExt::take_until(
+                        s,
+                        Box::pin(async move {
+                            tripwire.recv().await.unwrap_err();
+                            tracing::debug!("trace downlink done");
+                        }),
+                    )
+                }),
                 serial_relay,
             );
 
@@ -146,13 +170,15 @@ fn main() -> Result<()> {
             let downlink = relay::send_downlink::<Socket>(downlink_packets, downlink_sockets);
 
             futures::future::join5(
-                downlink,
-                drive_serial,
-                pump_serial_reader,
-                relay_uplink,
-                uplink_pump,
+                drive_serial.instrument(tracing::debug_span!("serial drive")),
+                pump_serial_reader.instrument(tracing::debug_span!("serial pump")),
+                relay_uplink.instrument(tracing::debug_span!("uplink to serial relay")),
+                uplink_pump.instrument(tracing::debug_span!("uplink pump")),
+                downlink.instrument(tracing::debug_span!("downlink")),
             )
             .await;
+
+            tracing::debug!("done");
 
             Ok(())
         }

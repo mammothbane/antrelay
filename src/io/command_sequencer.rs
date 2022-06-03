@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use dashmap::DashMap;
 use eyre::WrapErr;
 use packed_struct::PackedStructSlice;
@@ -5,7 +7,6 @@ use smol::{
     channel::Sender,
     prelude::*,
 };
-use std::sync::Arc;
 
 use crate::message::{
     payload::Ack,
@@ -24,7 +25,7 @@ pub struct CommandSequencer {
 
 impl CommandSequencer {
     pub fn new(
-        r: impl Stream<Item = Vec<u8>>,
+        serial_read: impl Stream<Item = Vec<u8>>,
     ) -> (Self, impl Stream<Item = eyre::Result<()>>, impl Stream<Item = Vec<u8>>) {
         let (tx, rx) = smol::channel::unbounded();
 
@@ -34,11 +35,13 @@ impl CommandSequencer {
         };
 
         let pending_acks = ret.pending_acks.clone();
-        let stream = r.map(move |pkt| Self::handle_maybe_ack_packet(&pkt, pending_acks.as_ref()));
+        let response_packets =
+            serial_read.map(move |pkt| Self::handle_maybe_ack_packet(&pkt, pending_acks.as_ref()));
 
-        (ret, stream, rx)
+        (ret, response_packets, rx)
     }
 
+    #[tracing::instrument(skip(self, msg), level = "debug", err)]
     pub async fn submit(&self, msg: &Message<OpaqueBytes>) -> eyre::Result<Message<Ack>> {
         let (tx, rx) = smol::channel::bounded(1);
         let message_id = msg.header.unique_id();
