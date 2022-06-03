@@ -11,10 +11,10 @@ use tracing::Span;
 use crate::{
     message::{
         header::{
+            Conversation,
             Destination,
-            Kind,
-            Source,
-            Type,
+            RequestMeta,
+            Server,
         },
         CRCWrap,
         Header,
@@ -33,7 +33,10 @@ use crate::{
 mod downlink;
 mod serial;
 
-use crate::message::payload::Ack;
+use crate::message::{
+    header::Disposition,
+    payload::Ack,
+};
 pub use downlink::*;
 pub use serial::*;
 
@@ -73,11 +76,11 @@ pub async fn ack_frontend(
                     destination: Destination::Ground,
                     timestamp:   MissionEpoch::now(),
                     seq:         0,
-                    ty:          Type {
-                        ack:                   true,
-                        acked_message_invalid: false,
-                        source:                Source::Frontend,
-                        kind:                  pkt.header.ty.kind,
+                    ty:          RequestMeta {
+                        disposition:         Disposition::Response,
+                        request_was_invalid: false,
+                        server:              Server::Frontend,
+                        conversation_type:   pkt.header.ty.conversation_type,
                     },
                 },
                 payload: CRCWrap::new(Ack {
@@ -108,11 +111,11 @@ pub fn dummy_log_downlink(
                     destination: Destination::Ground,
                     timestamp:   MissionEpoch::now(),
                     seq:         0,
-                    ty:          Type {
-                        ack:                   true,
-                        acked_message_invalid: false,
-                        source:                Source::Frontend,
-                        kind:                  Kind::Ping,
+                    ty:          RequestMeta {
+                        disposition:         Disposition::Response,
+                        request_was_invalid: false,
+                        server:              Server::Frontend,
+                        conversation_type:   Conversation::Ping,
                     },
                 },
                 payload: wrapped_payload,

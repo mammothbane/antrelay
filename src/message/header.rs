@@ -33,7 +33,7 @@ pub struct Header {
     pub timestamp:   MissionEpoch,
     pub seq:         u8,
     #[packed_field(size_bytes = "1")]
-    pub ty:          Type,
+    pub ty:          RequestMeta,
 }
 
 pub trait Clock {
@@ -58,7 +58,7 @@ impl<const C: u32> Clock for Const<C> {
 
 impl Header {
     #[inline]
-    pub fn downlink<C>(seq: u8, kind: Kind) -> Self
+    pub fn downlink<C>(seq: u8, kind: Conversation) -> Self
     where
         C: Clock,
     {
@@ -70,16 +70,16 @@ impl Header {
 
             seq,
 
-            ty: Type {
-                ack: true,
-                acked_message_invalid: false,
-                source: Source::Frontend,
-                kind,
+            ty: RequestMeta {
+                disposition:         Disposition::Response,
+                request_was_invalid: false,
+                server:              Server::Frontend,
+                conversation_type:   kind,
             },
         }
     }
 
-    pub fn cs_command<C>(seq: u8, kind: Kind) -> Self
+    pub fn cs_command<C>(seq: u8, kind: Conversation) -> Self
     where
         C: Clock,
     {
@@ -91,11 +91,11 @@ impl Header {
 
             seq,
 
-            ty: Type {
-                ack: true,
-                acked_message_invalid: false,
-                source: Source::Frontend,
-                kind,
+            ty: RequestMeta {
+                disposition:         Disposition::Response,
+                request_was_invalid: false,
+                server:              Server::Frontend,
+                conversation_type:   kind,
             },
         }
     }
@@ -114,15 +114,15 @@ impl Header {
 
         let ty_str = format!(
             "{:?}{}{}",
-            self.ty.kind,
-            self.ty.ack.then(|| "[Ack]").unwrap_or(""),
-            self.ty.acked_message_invalid.then(|| "[Invalid]").unwrap_or(""),
+            self.ty.conversation_type,
+            (self.ty.disposition == Disposition::Response).then(|| "[Ack]").unwrap_or(""),
+            self.ty.request_was_invalid.then(|| "[Invalid]").unwrap_or(""),
         );
 
         out.push_str(&format!(
             "{:?} {:?} -> {:?} @ {} [{}]",
             ty_str,
-            self.ty.source,
+            self.ty.server,
             self.destination,
             self.timestamp.conv::<chrono::DateTime<chrono::Utc>>(),
             self.seq,
@@ -143,33 +143,41 @@ pub enum Destination {
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PackedStruct)]
 #[packed_struct(bit_numbering = "msb0", size_bytes = "1")]
-pub struct Type {
-    #[packed_field(size_bits = "1")]
-    pub ack: bool,
+pub struct RequestMeta {
+    #[packed_field(size_bits = "1", ty = "enum")]
+    pub disposition: Disposition,
 
     #[packed_field(size_bits = "1")]
-    pub acked_message_invalid: bool,
+    pub request_was_invalid: bool,
 
     #[packed_field(size_bits = "2", ty = "enum")]
-    pub source: Source,
+    pub server: Server,
 
     #[packed_field(size_bits = "4", ty = "enum")]
-    pub kind: Kind,
+    pub conversation_type: Conversation,
 }
 
-impl Type {
+impl RequestMeta {
     pub const PONG: Self = Self {
-        ack:                   true,
-        acked_message_invalid: false,
-        source:                Source::Frontend,
-        kind:                  Kind::Ping,
+        disposition:         Disposition::Response,
+        request_was_invalid: false,
+        server:              Server::Frontend,
+        conversation_type:   Conversation::Ping,
     };
+}
+
+/// The direction of this message.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PrimitiveEnum_u8)]
+#[repr(u8)]
+pub enum Disposition {
+    Request,
+    Response,
 }
 
 /// The target of this *type* of message. A discriminant.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PrimitiveEnum_u8)]
 #[repr(u8)]
-pub enum Source {
+pub enum Server {
     Ant            = 0x0,
     CentralStation = 0x1,
     Frontend       = 0x2,
@@ -180,7 +188,7 @@ pub enum Source {
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PrimitiveEnum_u8)]
 #[repr(u8)]
-pub enum Kind {
+pub enum Conversation {
     Ping            = 0x01,
     Start           = 0x02,
     Calibrate       = 0x03,
@@ -235,14 +243,18 @@ mod test {
     }
 
     prop_compose! {
-        fn type_strategy()(ack in any::<bool>(), acked_message_invalid in any::<bool>(), source in source_strategy(), kind in kind_strategy()) -> Type {
-            Type {
-                ack,
-                acked_message_invalid,
-                source,
-                kind,
+        fn type_strategy()(disposition in direction_strategy(), request_was_invalid in any::<bool>(), server in server_strategy(), conversation_type in conversation_strategy()) -> RequestMeta {
+            RequestMeta {
+                disposition,
+                request_was_invalid,
+                server,
+                conversation_type,
             }
         }
+    }
+
+    fn direction_strategy() -> impl Strategy<Value = Disposition> {
+        prop_oneof![Just(Disposition::Response), Just(Disposition::Request),]
     }
 
     fn dest_strategy() -> impl Strategy<Value = Destination> {
@@ -254,18 +266,18 @@ mod test {
         ]
     }
 
-    fn source_strategy() -> impl Strategy<Value = Source> {
-        prop_oneof![Just(Source::Ant), Just(Source::CentralStation), Just(Source::Frontend),]
+    fn server_strategy() -> impl Strategy<Value = Server> {
+        prop_oneof![Just(Server::Ant), Just(Server::CentralStation), Just(Server::Frontend),]
     }
 
-    fn kind_strategy() -> impl Strategy<Value = Kind> {
+    fn conversation_strategy() -> impl Strategy<Value = Conversation> {
         prop_oneof![
-            Just(Kind::Ping),
-            Just(Kind::Start),
-            Just(Kind::Calibrate),
-            Just(Kind::RoverWillTurn),
-            Just(Kind::RoverNotTurning),
-            Just(Kind::VoltageSupplied),
+            Just(Conversation::Ping),
+            Just(Conversation::Start),
+            Just(Conversation::Calibrate),
+            Just(Conversation::RoverWillTurn),
+            Just(Conversation::RoverNotTurning),
+            Just(Conversation::VoltageSupplied),
         ]
     }
 }

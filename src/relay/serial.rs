@@ -6,6 +6,10 @@ use futures::{
     AsyncWrite,
 };
 use smol::prelude::*;
+use std::{
+    borrow::Borrow,
+    sync::Arc,
+};
 use tap::Pipe;
 
 use crate::{
@@ -15,10 +19,11 @@ use crate::{
     },
     message::{
         header::{
+            Conversation,
             Destination,
-            Kind,
-            Source,
-            Type,
+            Disposition,
+            RequestMeta,
+            Server,
         },
         payload::{
             realtime_status::RealtimeStatus,
@@ -75,15 +80,16 @@ pub fn assemble_serial(
 }
 
 #[tracing::instrument(skip_all)]
-pub fn relay_uplink_to_serial<'a, 'u, 'b>(
-    uplink: impl Stream<Item = Message<OpaqueBytes>> + 'u,
-    csq: &'a CommandSequencer,
-    request_backoff: impl Backoff + Clone + 'b,
+pub fn relay_uplink_to_serial<'a, 'c>(
+    uplink: impl Stream<Item = Message<OpaqueBytes>> + 'a,
+    csq: impl Borrow<CommandSequencer> + 'c,
+    request_backoff: impl Backoff + Clone + 'a,
 ) -> impl Stream<Item = Message<Ack>> + 'a
 where
-    'u: 'a,
-    'b: 'a,
+    'c: 'a,
 {
+    let csq = Arc::new(csq);
+
     uplink
         .filter(|msg| msg.header.destination != Destination::Frontend)
         .map(|msg| -> eyre::Result<_> {
@@ -92,20 +98,21 @@ where
             Ok((msg, crc))
         })
         .pipe(stream_unwrap!("computing incoming message checksum"))
-        .then(move |(msg, crc): (Message<OpaqueBytes>, Vec<u8>)| {
-            let csq = csq;
+        .scan(csq, move |csq, (msg, crc)| {
+            let csq = csq.clone();
 
-            Box::pin(backoff::future::retry_notify(
+            Some(Box::pin(backoff::future::retry_notify(
                 request_backoff.clone(),
                 move || {
+                    let csq = csq.clone();
                     let msg = msg.clone();
                     let crc = crc.clone();
-                    let csq = csq;
 
                     async move {
+                        let csq = csq.as_ref().borrow();
                         let ret = csq.submit(&msg).await.wrap_err("sending command to serial")?;
 
-                        if ret.header.ty.acked_message_invalid {
+                        if ret.header.ty.request_was_invalid {
                             return Err(backoff::Error::transient(eyre::eyre!(
                                 "ack message had invalid bit"
                             )));
@@ -123,8 +130,9 @@ where
                 |e, dur| {
                     tracing::error!(error = %e, backoff_dur = ?dur, "retrieving from serial");
                 },
-            ))
+            )))
         })
+        .then(|s| s)
         .pipe(stream_unwrap!("no ack from serial connection"))
 }
 
@@ -140,11 +148,11 @@ pub fn wrap_relay_packets(
             destination: Destination::Ground,
             timestamp:   MissionEpoch::now(),
             seq:         0, // TODO
-            ty:          Type {
-                ack:                   false,
-                acked_message_invalid: false,
-                source:                Source::Frontend,
-                kind:                  Kind::Relay,
+            ty:          RequestMeta {
+                disposition:         Disposition::Response,
+                request_was_invalid: false,
+                server:              Server::Frontend,
+                conversation_type:   Conversation::Relay,
             },
         },
         payload: CRCWrap::new(RelayPacket {

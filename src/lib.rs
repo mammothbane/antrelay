@@ -13,6 +13,7 @@
 mod mission_epoch;
 
 pub mod build;
+pub mod futures;
 pub mod io;
 mod macros;
 pub mod message;

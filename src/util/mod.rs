@@ -1,4 +1,7 @@
-use std::future::Future;
+use std::{
+    future::Future,
+    time::Duration,
+};
 
 use packed_struct::{
     PackedStructSlice,
@@ -18,7 +21,16 @@ use crate::{
 pub mod dynload;
 
 #[inline]
-#[tracing::instrument(skip_all)]
+#[tracing::instrument(skip(f), level = "trace")]
+pub async fn timeout<T>(millis: u64, f: impl Future<Output = T>) -> eyre::Result<T> {
+    match either(f, smol::Timer::after(Duration::from_millis(millis))).await {
+        either::Left(t) => Ok(t),
+        either::Right(_timeout) => Err(eyre::eyre!("timed out")),
+    }
+}
+
+#[inline]
+#[tracing::instrument(skip_all, level = "trace")]
 pub async fn either<T, U>(
     t: impl Future<Output = T>,
     u: impl Future<Output = U>,
@@ -27,7 +39,7 @@ pub async fn either<T, U>(
         .await
 }
 
-#[tracing::instrument(skip(s))]
+#[tracing::instrument(skip(s), level = "trace")]
 pub fn splittable_stream<S>(
     s: S,
     buffer: usize,
@@ -66,6 +78,13 @@ where
     s.map(|msg| <Message<T> as PackedStructSlice>::unpack_from_slice(&msg))
 }
 
+#[inline]
+pub fn brotli_compress_packets(
+    s: impl Stream<Item = Vec<u8>>,
+) -> impl Stream<Item = eyre::Result<Vec<u8>>> {
+    s.map(|mut v| brotli_compress(&mut v))
+}
+
 #[tracing::instrument(skip_all, level = "trace")]
 pub fn brotli_compress(message: &mut Vec<u8>) -> eyre::Result<Vec<u8>> {
     let compressed_bytes = {
@@ -84,4 +103,18 @@ pub fn brotli_compress(message: &mut Vec<u8>) -> eyre::Result<Vec<u8>> {
     };
 
     Ok(compressed_bytes)
+}
+
+#[inline]
+pub fn brotli_decompress_packets(
+    s: impl Stream<Item = Vec<u8>>,
+) -> impl Stream<Item = eyre::Result<Vec<u8>>> {
+    s.map(|mut v| brotli_decompress(&mut v))
+}
+
+pub fn brotli_decompress(v: &mut Vec<u8>) -> eyre::Result<Vec<u8>> {
+    let mut out = vec![];
+    brotli::BrotliDecompress(&mut &v[..], &mut out).map_err(eyre::Report::from)?;
+
+    Ok(out)
 }

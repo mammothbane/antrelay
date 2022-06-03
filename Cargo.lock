@@ -948,6 +948,7 @@ dependencies = [
  "once_cell",
  "packed_struct",
  "paste",
+ "pin-project-lite",
  "proptest",
  "serde",
  "serde_json",

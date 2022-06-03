@@ -1,48 +1,69 @@
-use lunarrelay::message::{
-    header::{
-        Const,
-        Kind,
+#![feature(never_type)]
+#![feature(try_blocks)]
+
+use crate::common::serial_ack_backend;
+use lunarrelay::{
+    message::{
+        header::{
+            Const,
+            Conversation,
+            Destination,
+            Disposition,
+            RequestMeta,
+            Server,
+        },
+        Header,
+        Message,
     },
-    Header,
-    Message,
+    util,
 };
-use smol::stream::StreamExt;
-use lunarrelay::message::header::{Destination, Source, Type};
 
 mod common;
 
 #[async_std::test]
 async fn test_5v_sup() -> eyre::Result<()> {
-    let harness = common::construct_graph();
+    common::trace_init();
 
-    let t = smol::spawn(harness.drive_serial.for_each(|_| {}));
+    let mut harness = common::construct_graph();
 
-    let orig_msg =
-        Message::new(Header::cs_command::<Const<0>>(0, Kind::VoltageSupplied), Vec::<u8>::new());
+    harness.uplink.close();
 
-    let resp = harness.packet_io.request(&orig_msg).await?;
+    let pumps = harness.pumps.take().unwrap();
+    let pump_task = smol::spawn(pumps);
+
+    let serial_task = smol::spawn(serial_ack_backend(
+        harness.serial_read,
+        harness.serial_write,
+        harness.done_rx.clone(),
+    ));
+
+    let orig_msg = Message::new(
+        Header::cs_command::<Const<0>>(0, Conversation::VoltageSupplied),
+        Vec::<u8>::new(),
+    );
 
     let Message {
         header,
         payload,
-    } = resp.wait().await?;
-
+    } = util::timeout(500, harness.csq.submit(&orig_msg)).await??;
     let ack = payload.as_ref();
 
     assert_eq!(ack.checksum, orig_msg.payload.checksum()?[0]);
     assert_eq!(ack.seq, orig_msg.header.seq);
     assert_eq!(ack.timestamp, orig_msg.header.timestamp);
 
-    assert_eq!(header.destination, Destination::Ground);
-    assert_eq!(header.ty, Type {
-        ack: true,
-        acked_message_invalid: false,
-        source: Source::CentralStation,
-        kind: Kind::VoltageSupplied
+    assert_eq!(header.destination, Destination::Frontend);
+    assert_eq!(header.ty, RequestMeta {
+        disposition:         Disposition::Response,
+        request_was_invalid: false,
+        server:              Server::CentralStation,
+        conversation_type:   Conversation::VoltageSupplied,
     });
-    assert_eq!(header.timestamp, )
 
-    t.cancel().await;
+    harness.done.close();
+
+    let (_, ser) = util::timeout(1000, smol::future::zip(pump_task, serial_task)).await?;
+    ser?;
 
     Ok(())
 }

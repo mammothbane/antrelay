@@ -9,6 +9,7 @@ use smol::{
 };
 
 use crate::message::{
+    header::Disposition,
     payload::Ack,
     CRCWrap,
     Message,
@@ -55,21 +56,22 @@ impl CommandSequencer {
         debug_assert!(old_sender.is_none());
 
         self.tx.send(msg.pack_to_vec()?).await?;
-
         let ret = rx.recv().await?;
+        tracing::debug!("post-receive");
         Ok(ret)
     }
 
+    #[tracing::instrument(fields(packet = ?packet), skip(acks), err, level = "debug")]
     fn handle_maybe_ack_packet(
         packet: &[u8],
         acks: &DashMap<UniqueId, Sender<Message<Ack>>>,
     ) -> eyre::Result<()> {
         let msg = <Message<OpaqueBytes> as PackedStructSlice>::unpack_from_slice(packet)?;
-        if !msg.header.ty.ack {
+        if msg.header.ty.disposition != Disposition::Response {
             return Ok(());
         }
 
-        let ack = msg.payload_into::<CRCWrap<Ack>>().wrap_err("parsing message body as ack")?;
+        let ack = msg.payload_into::<CRCWrap<Ack>>()?;
         let message_id = ack.payload.as_ref().unique_id();
 
         match acks.remove(&message_id) {

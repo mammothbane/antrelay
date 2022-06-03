@@ -32,10 +32,11 @@ use tap::Pipe;
 use lunarrelay::{
     message::{
         header::{
+            Conversation,
             Destination,
-            Kind,
-            Source,
-            Type,
+            Disposition,
+            RequestMeta,
+            Server,
         },
         CRCWrap,
         Header,
@@ -137,11 +138,11 @@ async fn send_serial(path: String) -> eyre::Result<impl Stream<Item = eyre::Resu
                         destination: Destination::CentralStation,
                         timestamp:   MissionEpoch::now(),
                         seq:         seq.fetch_add(1, Ordering::Acquire),
-                        ty:          Type {
-                            ack:                   false,
-                            acked_message_invalid: false,
-                            source:                Source::Rover,
-                            kind:                  Kind::VoltageSupplied,
+                        ty:          RequestMeta {
+                            disposition:         Disposition::Request,
+                            request_was_invalid: false,
+                            server:              Server::Rover,
+                            conversation_type:   Conversation::VoltageSupplied,
                         },
                     },
                     payload: wrapped_payload,
@@ -188,7 +189,7 @@ async fn log_all(
         })
         .pipe(stream_unwrap!("unpacking message"))
         .map(|msg: Message<OpaqueBytes>| {
-            if msg.header.ty.kind == Kind::Ping && msg.header.ty.source == Source::Frontend {
+            if msg.header.ty.conversation_type == Conversation::Ping && msg.header.ty.server == Server::Frontend {
                 let payload = bincode::deserialize::<Vec<Event>>(&msg.payload.as_ref())?;
                 tracing::debug!(msg.header = %msg.header.display(), ?payload);
             } else {
