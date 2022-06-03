@@ -15,10 +15,7 @@ use smol::stream::{
     StreamExt,
 };
 use tap::Pipe;
-use tracing::{
-    Instrument,
-    Span,
-};
+use tracing::Span;
 
 use crate::stream_unwrap;
 

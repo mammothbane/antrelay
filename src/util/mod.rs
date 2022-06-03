@@ -8,7 +8,6 @@ use smol::stream::{
     Stream,
     StreamExt,
 };
-use tracing::Instrument;
 
 use crate::message::Message;
 

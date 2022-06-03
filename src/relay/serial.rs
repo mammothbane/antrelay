@@ -12,7 +12,6 @@ use futures::{
 };
 use smol::prelude::*;
 use tap::Pipe;
-use tracing::Instrument;
 
 use crate::{
     io::{

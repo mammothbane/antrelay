@@ -34,7 +34,6 @@ use lunarrelay::{
     util::splittable_stream,
 };
 use tap::Pipe;
-use tracing::Instrument;
 
 pub use crate::options::Options;
 

@@ -4,7 +4,6 @@ use async_std::prelude::Stream;
 use packed_struct::PackedStructSlice;
 use smol::stream::StreamExt;
 use tap::Pipe;
-use tracing::Instrument;
 
 use crate::{
     message::{
