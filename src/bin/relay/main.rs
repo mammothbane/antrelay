@@ -15,7 +15,6 @@ use tap::Pipe;
 use lunarrelay::{
     build,
     compose,
-    fold,
     io::{
         pack_cobs,
         unpack_cobs,
@@ -32,7 +31,6 @@ use lunarrelay::{
     standard_graph,
     stream_unwrap,
     util::{
-        and_then,
         brotli_compress,
         brotli_decompress,
         pack_message,
@@ -109,15 +107,15 @@ fn main() -> Result<()> {
 
             let (serial_pump, csq, serial_downlink) = standard_graph::serial(
                 writer,
-                fold!(and_then, pack_message, |v| Ok(pack_cobs(v, 0u8)),),
+                compose!(map, pack_message, |v| pack_cobs(v, 0u8)),
                 reader,
-                and_then(|v| unpack_cobs(v, 0u8), unpack_message),
+                compose!(and_then, |v| unpack_cobs(v, 0u8), unpack_message),
                 tripwire.clone(),
             );
 
             let graph = standard_graph::run(
                 uplink,
-                and_then(brotli_decompress, unpack_message),
+                compose!(and_then, brotli_decompress, unpack_message),
                 downlink_sockets,
                 compose!(and_then, pack_message, |v| Ok(pack_cobs(v, 0u8)), brotli_compress),
                 trace_event_stream.pipe(dummy_log_downlink),

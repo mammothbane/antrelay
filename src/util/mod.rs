@@ -26,15 +26,6 @@ where
     move |x| g(f(x))
 }
 
-#[inline(always)]
-pub fn and_then<A, B, C, E, G, F>(f: F, g: G) -> impl Fn(A) -> Result<C, E>
-where
-    F: Fn(A) -> Result<B, E>,
-    G: Fn(B) -> Result<C, E>,
-{
-    move |x| f(x).and_then(&g)
-}
-
 #[macro_export]
 macro_rules! compose {
     ($c:ident, $f:expr, $g:expr $(, $gs:expr)+) => {
