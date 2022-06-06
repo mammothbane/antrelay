@@ -13,10 +13,7 @@ use std::{
 use tap::Pipe;
 
 use crate::{
-    io::{
-        self,
-        CommandSequencer,
-    },
+    io::CommandSequencer,
     message::{
         header::{
             Conversation,
@@ -36,7 +33,6 @@ use crate::{
         OpaqueBytes,
     },
     stream_unwrap,
-    trip,
     MissionEpoch,
 };
 
@@ -52,31 +48,6 @@ pub async fn connect_serial(
 
     let stream = async_compat::Compat::new(stream);
     Ok(smol::io::split(stream))
-}
-
-#[tracing::instrument(skip_all, level = "debug")]
-pub fn assemble_serial(
-    reader: impl Stream<Item = Vec<u8>> + Unpin,
-    writer: impl AsyncWrite + Unpin + 'static,
-    done: smol::channel::Receiver<!>,
-) -> (CommandSequencer, impl Future<Output = ()>) {
-    let (cseq, serial_responses, serial_requests) = CommandSequencer::new(reader);
-
-    let serial_requests =
-        serial_requests.pipe(|s| io::pack_cobs_stream(s, 0)).pipe(trip!(noclone done));
-
-    let pump_serial_writer = io::write_packet_stream(serial_requests, writer)
-        .pipe(stream_unwrap!("writing packets to serial"))
-        .for_each(|_| {});
-
-    let packet_handler =
-        serial_responses.pipe(stream_unwrap!("reading from serial")).for_each(|_| {});
-
-    let drive_all = async move {
-        smol::future::zip(pump_serial_writer, packet_handler).await;
-    };
-
-    (cseq, drive_all)
 }
 
 #[tracing::instrument(skip_all)]
@@ -110,7 +81,7 @@ where
 
                     async move {
                         let csq = csq.as_ref().borrow();
-                        let ret = csq.submit(&msg).await.wrap_err("sending command to serial")?;
+                        let ret = csq.submit(msg).await.wrap_err("sending command to serial")?;
 
                         if ret.header.ty.request_was_invalid {
                             return Err(backoff::Error::transient(eyre::eyre!(

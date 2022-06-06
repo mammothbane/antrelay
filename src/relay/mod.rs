@@ -1,7 +1,4 @@
-use std::{
-    error::Error,
-    time::Duration,
-};
+use std::time::Duration;
 
 use async_std::prelude::Stream;
 use smol::stream::StreamExt;
@@ -13,30 +10,23 @@ use crate::{
         header::{
             Conversation,
             Destination,
+            Disposition,
             RequestMeta,
             Server,
         },
+        payload::Ack,
         CRCWrap,
         Header,
         Message,
         OpaqueBytes,
     },
-    net::{
-        receive_packets,
-        DatagramReceiver,
-    },
     stream_unwrap,
-    util::deserialize_messages,
     MissionEpoch,
 };
 
 mod downlink;
 mod serial;
 
-use crate::message::{
-    header::Disposition,
-    payload::Ack,
-};
 pub use downlink::*;
 pub use serial::*;
 
@@ -48,23 +38,8 @@ lazy_static::lazy_static! {
         .build();
 }
 
-#[tracing::instrument(skip(socket_stream))]
-pub async fn uplink_stream<Socket>(
-    socket_stream: impl Stream<Item = Socket> + Unpin + Send + 'static,
-) -> impl Stream<Item = Message<OpaqueBytes>>
-where
-    Socket: DatagramReceiver + Send + Sync + 'static,
-    Socket::Error: Error + Send + Sync + 'static,
-{
-    let span = Span::current();
-
-    receive_packets(socket_stream)
-        .pipe(deserialize_messages)
-        .pipe(stream_unwrap!(parent: &span, "deserializing messages"))
-}
-
 #[tracing::instrument(skip_all)]
-pub async fn ack_frontend(
+pub fn ack_frontend(
     packets: impl Stream<Item = Message<OpaqueBytes>>,
 ) -> impl Stream<Item = Message<Ack>> {
     packets

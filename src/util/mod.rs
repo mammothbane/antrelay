@@ -3,10 +3,7 @@ use std::{
     time::Duration,
 };
 
-use packed_struct::{
-    PackedStructSlice,
-    PackingResult,
-};
+use packed_struct::PackedStructSlice;
 use smol::stream::{
     Stream,
     StreamExt,
@@ -19,6 +16,54 @@ use crate::{
 
 #[cfg(unix)]
 pub mod dynload;
+
+#[inline(always)]
+pub fn compose<A, B, C, G, F>(f: F, g: G) -> impl Fn(A) -> C
+where
+    F: Fn(A) -> B,
+    G: Fn(B) -> C,
+{
+    move |x| g(f(x))
+}
+
+#[inline(always)]
+pub fn and_then<A, B, C, E, G, F>(f: F, g: G) -> impl Fn(A) -> Result<C, E>
+where
+    F: Fn(A) -> Result<B, E>,
+    G: Fn(B) -> Result<C, E>,
+{
+    move |x| f(x).and_then(&g)
+}
+
+#[macro_export]
+macro_rules! compose {
+    ($c:ident, $f:expr, $g:expr $(, $gs:expr)+) => {
+        move |x| $f(x).$c($crate::compose!($c, $g, $($gs,)+))
+    };
+
+    ($c:ident, $f:expr, $g:expr) => {
+        move |x| $f(x).$c(&$g)
+    };
+
+    ($c:ident, $($args:expr,)*) => {
+        $crate::compose!($c $(, $args)*)
+    };
+}
+
+#[macro_export]
+macro_rules! fold {
+    ($c:expr, $f:expr, $gnext:expr $(, $gs:expr)+) => {
+        $c($f, $crate::fold!($c, $gnext $(, $gs)+))
+    };
+
+    ($c:expr, $f:expr, $g:expr,) => {
+        $crate::fold!($c, $f, $g)
+    };
+
+    ($c:expr, $f:expr, $g:expr) => {
+        $c($f, $g)
+    };
+}
 
 #[inline]
 #[tracing::instrument(skip(f), level = "trace")]
@@ -40,13 +85,13 @@ pub async fn either<T, U>(
 }
 
 #[tracing::instrument(skip(s), level = "trace")]
-pub fn splittable_stream<S>(
+pub fn splittable_stream<'s, 'o, S>(
     s: S,
     buffer: usize,
-) -> (impl Stream<Item = S::Item> + Clone + Unpin, impl Future<Output = ()>)
+) -> (impl Stream<Item = S::Item> + Clone + Unpin + 'o, impl Future<Output = ()> + 's)
 where
-    S: Stream + Send + 'static,
-    S::Item: Clone + Send + Sync,
+    S: Stream + Send + 's,
+    S::Item: Clone + Send + Sync + 'o,
 {
     let (tx, rx) = {
         let (mut tx, rx) = async_broadcast::broadcast(buffer);
@@ -69,24 +114,23 @@ where
 
 #[inline]
 #[tracing::instrument(skip_all, level = "trace")]
-pub fn deserialize_messages<T>(
-    s: impl Stream<Item = Vec<u8>>,
-) -> impl Stream<Item = PackingResult<Message<T>>>
+pub fn unpack_message<T>(v: Vec<u8>) -> eyre::Result<Message<T>>
 where
     T: PackedStructSlice,
 {
-    s.map(|msg| <Message<T> as PackedStructSlice>::unpack_from_slice(&msg))
+    <Message<T> as PackedStructSlice>::unpack_from_slice(&v).map_err(eyre::Report::from)
 }
 
 #[inline]
-pub fn brotli_compress_packets(
-    s: impl Stream<Item = Vec<u8>>,
-) -> impl Stream<Item = eyre::Result<Vec<u8>>> {
-    s.map(|mut v| brotli_compress(&mut v))
+pub fn pack_message<T>(t: T) -> eyre::Result<Vec<u8>>
+where
+    T: PackedStructSlice,
+{
+    t.pack_to_vec().map_err(eyre::Report::from)
 }
 
 #[tracing::instrument(skip_all, level = "trace")]
-pub fn brotli_compress(message: &mut Vec<u8>) -> eyre::Result<Vec<u8>> {
+pub fn brotli_compress(message: Vec<u8>) -> eyre::Result<Vec<u8>> {
     let compressed_bytes = {
         let mut out = vec![];
 
@@ -105,14 +149,7 @@ pub fn brotli_compress(message: &mut Vec<u8>) -> eyre::Result<Vec<u8>> {
     Ok(compressed_bytes)
 }
 
-#[inline]
-pub fn brotli_decompress_packets(
-    s: impl Stream<Item = Vec<u8>>,
-) -> impl Stream<Item = eyre::Result<Vec<u8>>> {
-    s.map(|mut v| brotli_decompress(&mut v))
-}
-
-pub fn brotli_decompress(v: &mut Vec<u8>) -> eyre::Result<Vec<u8>> {
+pub fn brotli_decompress(v: Vec<u8>) -> eyre::Result<Vec<u8>> {
     let mut out = vec![];
     brotli::BrotliDecompress(&mut &v[..], &mut out).map_err(eyre::Report::from)?;
 

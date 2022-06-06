@@ -8,15 +8,21 @@
 #![deny(unsafe_code)]
 
 use eyre::Result;
-use packed_struct::PackedStructSlice;
 use smol::stream::StreamExt as _;
 use structopt::StructOpt as _;
 use tap::Pipe;
 
 use lunarrelay::{
     build,
+    compose,
+    fold,
+    io::{
+        pack_cobs,
+        unpack_cobs,
+    },
     net,
     net::{
+        receive_packets,
         SocketMode,
         DEFAULT_BACKOFF,
     },
@@ -25,6 +31,13 @@ use lunarrelay::{
     signals,
     standard_graph,
     stream_unwrap,
+    util::{
+        and_then,
+        brotli_compress,
+        brotli_decompress,
+        pack_message,
+        unpack_message,
+    },
 };
 
 pub use crate::options::Options;
@@ -65,20 +78,20 @@ fn main() -> Result<()> {
 
     let signal_done = signals::signals()?;
 
+    let (trigger, tripwire) = smol::channel::bounded::<!>(1);
+
+    smol::spawn(async move {
+        signal_done.recv().await.unwrap_err();
+        trigger.close();
+    })
+    .detach();
+
     smol::block_on({
         async move {
             #[cfg(unix)]
             lunarrelay::util::dynload::apply_patches(&options.lib_dir).await;
 
             let (reader, writer) = relay::connect_serial(options.serial_port, options.baud).await?;
-
-            let (trigger, tripwire) = smol::channel::bounded::<!>(1);
-
-            smol::spawn(async move {
-                signal_done.recv().await.unwrap_err();
-                trigger.close();
-            })
-            .detach();
 
             let uplink_sockets = net::socket_stream::<Socket>(
                 options.uplink_address,
@@ -87,27 +100,33 @@ fn main() -> Result<()> {
             )
             .pipe(stream_unwrap!("connecting to uplink socket"));
 
-            let uplink = relay::uplink_stream(uplink_sockets)
-                .await
-                .pipe(lunarrelay::trip!(tripwire))
-                .map(|msg| msg.pack_to_vec())
-                .pipe(stream_unwrap!("unpacking message"));
+            let uplink = receive_packets(uplink_sockets).pipe(lunarrelay::trip!(tripwire));
 
             let downlink_sockets = options.downlink_addresses.iter().cloned().map(|addr| {
                 net::socket_stream::<Socket>(addr, DEFAULT_BACKOFF.clone(), SocketMode::Connect)
                     .pipe(stream_unwrap!("connecting to downlink socket"))
             });
 
-            standard_graph::run(
-                reader,
+            let (serial_pump, csq, serial_downlink) = standard_graph::serial(
                 writer,
+                fold!(and_then, pack_message, |v| Ok(pack_cobs(v, 0u8)),),
+                reader,
+                and_then(|v| unpack_cobs(v, 0u8), unpack_message),
+                tripwire.clone(),
+            );
+
+            let graph = standard_graph::run(
                 uplink,
-                dummy_log_downlink(trace_event_stream),
+                and_then(brotli_decompress, unpack_message),
                 downlink_sockets,
+                compose!(and_then, pack_message, |v| Ok(pack_cobs(v, 0u8)), brotli_compress),
+                trace_event_stream.pipe(dummy_log_downlink),
+                csq,
+                serial_downlink,
                 tripwire,
-            )
-            .0
-            .await;
+            );
+
+            smol::future::zip(graph, serial_pump).await;
 
             Ok(())
         }

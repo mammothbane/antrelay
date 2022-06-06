@@ -22,8 +22,6 @@ pub trait StreamCodec {
         S::Item: 'a;
 }
 
-pub trait StreamExt: Stream {}
-
 pub trait InvertibleCodec: StreamCodec {
     type Invert: StreamCodec<Output = Self::Input, Input = Self::Output>;
 }

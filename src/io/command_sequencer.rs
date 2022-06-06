@@ -2,7 +2,6 @@ use std::sync::Arc;
 
 use dashmap::DashMap;
 use eyre::WrapErr;
-use packed_struct::PackedStructSlice;
 use smol::{
     channel::Sender,
     prelude::*,
@@ -21,29 +20,30 @@ type AckMap = DashMap<UniqueId, Sender<Message<Ack>>>;
 
 pub struct CommandSequencer {
     pending_acks: Arc<AckMap>,
-    tx:           Sender<Vec<u8>>,
+    uplink_q:     Sender<Message<OpaqueBytes>>,
 }
 
 impl CommandSequencer {
     pub fn new(
-        serial_read: impl Stream<Item = Vec<u8>>,
-    ) -> (Self, impl Stream<Item = eyre::Result<()>>, impl Stream<Item = Vec<u8>>) {
-        let (tx, rx) = smol::channel::unbounded();
+        downlink: impl Stream<Item = Message<OpaqueBytes>>,
+    ) -> (Self, impl Stream<Item = eyre::Result<()>>, impl Stream<Item = Message<OpaqueBytes>>)
+    {
+        let (uplink_tx, uplink_rx) = smol::channel::unbounded();
 
         let ret = CommandSequencer {
             pending_acks: Arc::new(DashMap::new()),
-            tx,
+            uplink_q:     uplink_tx,
         };
 
         let pending_acks = ret.pending_acks.clone();
-        let response_packets =
-            serial_read.map(move |pkt| Self::handle_maybe_ack_packet(&pkt, pending_acks.as_ref()));
+        let downlink_packets =
+            downlink.map(move |pkt| Self::handle_maybe_ack_packet(&pkt, pending_acks.as_ref()));
 
-        (ret, response_packets, rx)
+        (ret, downlink_packets, uplink_rx)
     }
 
     #[tracing::instrument(skip(self, msg), level = "debug", err)]
-    pub async fn submit(&self, msg: &Message<OpaqueBytes>) -> eyre::Result<Message<Ack>> {
+    pub async fn submit(&self, msg: Message<OpaqueBytes>) -> eyre::Result<Message<Ack>> {
         let (tx, rx) = smol::channel::bounded(1);
         let message_id = msg.header.unique_id();
 
@@ -55,18 +55,17 @@ impl CommandSequencer {
         let old_sender = self.pending_acks.insert(message_id, tx);
         debug_assert!(old_sender.is_none());
 
-        self.tx.send(msg.pack_to_vec()?).await?;
+        self.uplink_q.send(msg).await?;
         let ret = rx.recv().await?;
         tracing::debug!("post-receive");
         Ok(ret)
     }
 
-    #[tracing::instrument(fields(packet = ?packet), skip(acks), err, level = "debug")]
+    #[tracing::instrument(fields(msg = ?msg), skip(acks), err, level = "debug")]
     fn handle_maybe_ack_packet(
-        packet: &[u8],
+        msg: &Message<OpaqueBytes>,
         acks: &DashMap<UniqueId, Sender<Message<Ack>>>,
     ) -> eyre::Result<()> {
-        let msg = <Message<OpaqueBytes> as PackedStructSlice>::unpack_from_slice(packet)?;
         if msg.header.ty.disposition != Disposition::Response {
             return Ok(());
         }
