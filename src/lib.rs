@@ -21,6 +21,7 @@ pub mod net;
 pub mod relay;
 pub mod signals;
 pub mod standard_graph;
+mod stream_monad;
 pub mod tracing;
 pub mod util;
 

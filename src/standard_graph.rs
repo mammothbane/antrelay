@@ -1,5 +1,12 @@
+use std::{
+    error::Error,
+    pin::Pin,
+    sync::Arc,
+};
+
 use crate::{
     io,
+    io::CommandSequencer,
     message::{
         payload::{
             realtime_status::Flags,
@@ -17,37 +24,42 @@ use crate::{
     },
     relay,
     relay::wrap_relay_packets,
+    stream_monad::{
+        self,
+        StreamCodec,
+    },
     stream_unwrap,
     trip,
-    util::splittable_stream,
+    util::{
+        brotli_compress,
+        splittable_stream,
+    },
 };
-use packed_struct::PackedStructSlice;
 use smol::{
     channel::Receiver,
     prelude::*,
 };
-use std::error::Error;
 use tap::Pipe;
 
-pub async fn run<Socket>(
+pub fn run<Socket, ReadCodec, WriteCodec>(
     serial_read: impl AsyncRead + Unpin + Send + 'static,
     serial_write: impl AsyncWrite + Unpin + 'static,
-    uplink: impl Stream<Item = Vec<u8>> + Unpin + Send + 'static,
+    uplink: impl Stream<Item = Message<OpaqueBytes>> + Unpin + Send + 'static,
     trace_event: impl Stream<Item = Message<OpaqueBytes>> + Unpin + Send + 'static,
     downlink_sockets: impl IntoIterator<Item = impl Stream<Item = Socket> + Unpin + 'static>,
     tripwire: Receiver<!>,
-) where
+) -> (impl Future<Output = ()>, Arc<CommandSequencer>)
+where
     Socket: DatagramReceiver + DatagramSender + Send + 'static,
     Socket::Error: Error,
+    ReadCodec: StreamCodec<Input = Vec<u8>, Output = Vec<u8>>,
+    WriteCodec: StreamCodec<Input = Vec<u8>, Output = Vec<u8>>,
 {
-    let (uplink, uplink_pump) = uplink
-        .map(|pkt| <Message<OpaqueBytes> as PackedStructSlice>::unpack_from_slice(&pkt))
-        .pipe(stream_unwrap!("unpacking uplink"))
-        .pipe(trip!(tripwire))
-        .pipe(|s| splittable_stream(s, 1024));
+    let (uplink, uplink_pump) = uplink.pipe(trip!(tripwire)).pipe(|s| splittable_stream(s, 1024));
 
     // TODO: handle cobs
     let (read_packets, pump_serial_reader) = serial_read
+        .pipe(ReadCodec::encode)
         .pipe(|r| io::split_packets(smol::io::BufReader::new(r), 0, 8192))
         .pipe(stream_unwrap!("splitting serial packet"))
         .pipe(|s| io::unpack_cobs_stream(s, 0))
@@ -55,12 +67,17 @@ pub async fn run<Socket>(
         .pipe(trip!(tripwire))
         .pipe(|s| splittable_stream(s, 1024));
 
-    let (cseq, drive_serial) =
+    let (csq, drive_serial) =
         relay::assemble_serial(read_packets.clone(), serial_write, tripwire.clone());
 
-    let relay_uplink =
-        relay::relay_uplink_to_serial(uplink.clone(), &cseq, relay::SERIAL_REQUEST_BACKOFF.clone())
-            .for_each(|_| {});
+    let csq = Arc::new(csq);
+
+    let relay_uplink = relay::relay_uplink_to_serial(
+        uplink.clone(),
+        csq.clone(),
+        relay::SERIAL_REQUEST_BACKOFF.clone(),
+    )
+    .for_each(|_| {});
 
     let serial_relay = wrap_relay_packets(
         read_packets,
@@ -81,6 +98,16 @@ pub async fn run<Socket>(
 
     let downlink = relay::send_downlink::<Socket>(downlink_packets, downlink_sockets);
 
-    futures::future::join5(drive_serial, pump_serial_reader, relay_uplink, uplink_pump, downlink)
+    let fut_joined = async move {
+        futures::future::join5(
+            drive_serial,
+            pump_serial_reader,
+            relay_uplink,
+            uplink_pump,
+            downlink,
+        )
         .await;
+    };
+
+    (fut_joined, csq)
 }

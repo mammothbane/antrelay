@@ -64,6 +64,7 @@ use lunarrelay::{
     },
     relay,
     split,
+    standard_graph,
     stream_unwrap,
     trip,
     MissionEpoch,
@@ -95,35 +96,14 @@ pub fn construct_graph() -> Harness {
     let (mut uplink_tx, uplink_rx) = async_broadcast::broadcast(1024);
     uplink_tx.set_overflow(true);
 
-    let (serial_packets, serial_incoming_pump) = io::split_packets(serial_read, 0, 1024)
-        .pipe(stream_unwrap!("splitting packets"))
-        .pipe(|s| io::unpack_cobs_stream(s, 0))
-        .pipe(stream_unwrap!("unpacking cobs packets"))
-        .pipe(split!());
-
-    let (csq, serial_pump) =
-        relay::assemble_serial(serial_packets.clone(), serial_write, done_rx.clone());
-    let csq = Arc::new(csq);
-
-    let serial_relay = relay::wrap_relay_packets(
-        serial_packets,
-        smol::stream::repeat(RealtimeStatus {
-            memory_usage: 0,
-            logs_pending: 0,
-            flags:        Flags::None,
-        }),
-    )
-    .map(|msg| msg.payload_into::<CRCWrap<OpaqueBytes>>())
-    .pipe(stream_unwrap!("serializing relay packet"));
-
-    let downlink_packets = relay::assemble_downlink(uplink_rx.clone(), log_rx, serial_relay);
-
-    let drive_serial = relay::relay_uplink_to_serial(
-        uplink_rx,
-        csq.clone(),
-        relay::SERIAL_REQUEST_BACKOFF.clone(),
-    )
-    .for_each(|_| {});
+    let (fut, csq) = standard_graph::run(
+        serial_read,
+        serial_write,
+        uplink_rx.clone(),
+        log_rx,
+        std::iter::empty(),
+        done_rx.clone(),
+    );
 
     Harness {
         uplink: uplink_tx,
@@ -135,9 +115,7 @@ pub fn construct_graph() -> Harness {
         csq,
         done: done_tx,
         done_rx,
-        pumps: Some(Box::pin(async move {
-            futures::future::join3(serial_pump, serial_incoming_pump, drive_serial).await;
-        })),
+        pumps: Some(Box::pin(fut)),
 
         log: log_tx,
     }

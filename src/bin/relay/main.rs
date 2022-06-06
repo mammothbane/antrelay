@@ -11,34 +11,21 @@ use eyre::Result;
 use packed_struct::PackedStructSlice;
 use smol::stream::StreamExt as _;
 use structopt::StructOpt as _;
+use tap::Pipe;
 
 use lunarrelay::{
     build,
-    io,
-    message::{
-        payload::{
-            realtime_status::Flags,
-            RealtimeStatus,
-        },
-        CRCWrap,
-        OpaqueBytes,
-    },
     net,
     net::{
         SocketMode,
         DEFAULT_BACKOFF,
     },
     relay,
-    relay::{
-        dummy_log_downlink,
-        wrap_relay_packets,
-    },
+    relay::dummy_log_downlink,
     signals,
     standard_graph,
     stream_unwrap,
-    util::splittable_stream,
 };
-use tap::Pipe;
 
 pub use crate::options::Options;
 
@@ -119,6 +106,7 @@ fn main() -> Result<()> {
                 downlink_sockets,
                 tripwire,
             )
+            .0
             .await;
 
             Ok(())

@@ -1,11 +1,6 @@
 use std::{
-    cell::{
-        RefCell,
-        RefMut,
-    },
     error::Error,
     fmt::Display,
-    sync::Arc,
     time::Duration,
 };
 
@@ -17,7 +12,10 @@ use smol::stream::{
 use tap::Pipe;
 use tracing::Span;
 
-use crate::stream_unwrap;
+use crate::{
+    futures::StreamExt as _,
+    stream_unwrap,
+};
 
 pub use datagram::{
     Datagram,
@@ -104,32 +102,16 @@ where
     Socket: DatagramSender,
     Socket::Error: Error,
 {
-    tracing::debug!("waow starting");
+    packets.owned_scan((sockets, None as Option<Socket>), |(mut sockets, sock), pkt| async move {
+        let sock = match sock {
+            None => sockets.next().await,
+            s => s,
+        }?;
 
-    futures::StreamExt::scan(
-        packets,
-        (Arc::new(RefCell::new(sockets)), Arc::new(RefCell::new(None))),
-        |(sockets, sock), pkt| {
-            let sock = sock.clone();
-            let sockets = sockets.clone();
+        let result = sock.send(&pkt).await.map(|_| ());
 
-            async move {
-                let sock = sock;
-                let sockets = sockets;
-
-                let mut sock: RefMut<Option<Arc<Socket>>> = sock.borrow_mut();
-                let mut sockets = sockets.borrow_mut();
-
-                if sock.is_none() {
-                    *sock = sockets.next().await.map(Arc::new);
-                }
-
-                let result = sock.as_mut()?.send(&pkt).await.map(|_| ());
-
-                Some(result)
-            }
-        },
-    )
+        Some(((sockets, Some(sock)), result))
+    })
 }
 
 lazy_static::lazy_static! {
