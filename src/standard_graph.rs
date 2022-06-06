@@ -4,6 +4,12 @@ use std::{
     sync::Arc,
 };
 
+use smol::{
+    channel::Receiver,
+    prelude::*,
+};
+use tap::Pipe;
+
 use crate::{
     io,
     io::CommandSequencer,
@@ -24,6 +30,7 @@ use crate::{
     },
     relay,
     relay::wrap_relay_packets,
+    split,
     stream_monad::{
         self,
         StreamCodec,
@@ -35,15 +42,12 @@ use crate::{
         splittable_stream,
     },
 };
-use smol::{
-    channel::Receiver,
-    prelude::*,
-};
-use tap::Pipe;
+
+type StdCodec =
 
 pub fn run<Socket, ReadCodec, WriteCodec>(
-    serial_read: impl AsyncRead + Unpin + Send + 'static,
-    serial_write: impl AsyncWrite + Unpin + 'static,
+    serial_downlink: impl AsyncRead + Unpin + Send + 'static,
+    serial_uplink: impl AsyncWrite + Unpin + 'static,
     uplink: impl Stream<Item = Message<OpaqueBytes>> + Unpin + Send + 'static,
     trace_event: impl Stream<Item = Message<OpaqueBytes>> + Unpin + Send + 'static,
     downlink_sockets: impl IntoIterator<Item = impl Stream<Item = Socket> + Unpin + 'static>,
@@ -54,21 +58,21 @@ where
     Socket::Error: Error,
     ReadCodec: StreamCodec<Input = Vec<u8>, Output = Vec<u8>>,
     WriteCodec: StreamCodec<Input = Vec<u8>, Output = Vec<u8>>,
+    ReadCodec::Error: Error + 'static,
 {
     let (uplink, uplink_pump) = uplink.pipe(trip!(tripwire)).pipe(|s| splittable_stream(s, 1024));
 
     // TODO: handle cobs
-    let (read_packets, pump_serial_reader) = serial_read
-        .pipe(ReadCodec::encode)
+    let (read_packets, pump_serial_reader) = serial_downlink
         .pipe(|r| io::split_packets(smol::io::BufReader::new(r), 0, 8192))
-        .pipe(stream_unwrap!("splitting serial packet"))
-        .pipe(|s| io::unpack_cobs_stream(s, 0))
-        .pipe(stream_unwrap!("unwrapping cobs"))
+        .pipe(stream_unwrap!("splitting serial downlink packets"))
+        .pipe(ReadCodec::encode)
+        .pipe(stream_unwrap!("parsing serial downlink packets"))
         .pipe(trip!(tripwire))
-        .pipe(|s| splittable_stream(s, 1024));
+        .pipe(split!());
 
     let (csq, drive_serial) =
-        relay::assemble_serial(read_packets.clone(), serial_write, tripwire.clone());
+        relay::assemble_serial(read_packets.clone(), serial_uplink, tripwire.clone());
 
     let csq = Arc::new(csq);
 

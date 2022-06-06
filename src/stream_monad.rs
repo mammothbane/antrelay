@@ -14,11 +14,15 @@ pub trait StreamCodec {
 
     type Error;
 
-    fn encode<'a, S>(s: S) -> Pin<Box<dyn Stream<Item = Result<Self::Output, Self::Error>> + 'a>>
+    fn encode<'a, S>(
+        s: S,
+    ) -> Pin<Box<dyn Stream<Item = Result<Self::Output, Self::Error>> + 'a + Send>>
     where
-        S: Stream<Item = Self::Input> + 'a,
+        S: Stream<Item = Self::Input> + 'a + Send,
         S::Item: 'a;
 }
+
+pub trait StreamExt: Stream {}
 
 pub trait InvertibleCodec: StreamCodec {
     type Invert: StreamCodec<Output = Self::Input, Input = Self::Output>;
@@ -32,9 +36,9 @@ impl<T> StreamCodec for Identity<T> {
     type Output = T;
 
     #[inline]
-    fn encode<'a, S>(s: S) -> Pin<Box<dyn Stream<Item = Result<T, !>> + 'a>>
+    fn encode<'a, S>(s: S) -> Pin<Box<dyn Stream<Item = Result<T, !>> + 'a + Send>>
     where
-        S: Stream<Item = T> + 'a,
+        S: Stream<Item = T> + 'a + Send,
         S::Item: 'a,
     {
         Box::pin(s.map(Ok))
@@ -59,9 +63,11 @@ where
     type Input = Vec<u8>;
     type Output = Vec<u8>;
 
-    fn encode<'a, S>(s: S) -> Pin<Box<dyn Stream<Item = Result<Self::Output, Self::Error>> + 'a>>
+    fn encode<'a, S>(
+        s: S,
+    ) -> Pin<Box<dyn Stream<Item = Result<Self::Output, Self::Error>> + 'a + Send>>
     where
-        S: Stream<Item = Self::Input> + 'a,
+        S: Stream<Item = Self::Input> + 'a + Send,
     {
         Box::pin(s.map(|v| {
             let mut out = vec![];
@@ -79,10 +85,11 @@ impl<T> StreamCodec for BrotliDecompress<T> {
     type Input = Vec<u8>;
     type Output = Vec<u8>;
 
-    fn encode<'a, S>(s: S) -> Pin<Box<dyn Stream<Item = Result<Self::Output, Self::Error>> + 'a>>
+    fn encode<'a, S>(
+        s: S,
+    ) -> Pin<Box<dyn Stream<Item = Result<Self::Output, Self::Error>> + 'a + Send>>
     where
-        S: Stream<Item = Self::Input> + 'a,
-        S::Item: 'a,
+        S: Stream<Item = Self::Input> + 'a + Send,
     {
         Box::pin(s.map(|v| {
             let mut out = vec![];
@@ -113,9 +120,11 @@ where
     type Input = T::Input;
     type Output = U::Output;
 
-    fn encode<'a, S>(s: S) -> Pin<Box<dyn Stream<Item = Result<Self::Output, Self::Error>> + 'a>>
+    fn encode<'a, S>(
+        s: S,
+    ) -> Pin<Box<dyn Stream<Item = Result<Self::Output, Self::Error>> + 'a + Send>>
     where
-        S: Stream<Item = Self::Input> + 'a,
+        S: Stream<Item = Self::Input> + 'a + Send,
     {
         s.pipe(T::encode).map(|x| x.unwrap()).pipe(U::encode)
     }
@@ -133,9 +142,11 @@ where
     type Input = T;
     type Output = Vec<u8>;
 
-    fn encode<'a, S>(s: S) -> Pin<Box<dyn Stream<Item = Result<Self::Output, Self::Error>> + 'a>>
+    fn encode<'a, S>(
+        s: S,
+    ) -> Pin<Box<dyn Stream<Item = Result<Self::Output, Self::Error>> + 'a + Send>>
     where
-        S: Stream<Item = Self::Input> + 'a,
+        S: Stream<Item = Self::Input> + 'a + Send,
         S::Item: 'a,
     {
         Box::pin(s.map(|elt| elt.pack_to_vec()))
@@ -150,31 +161,13 @@ where
     type Input = Vec<u8>;
     type Output = T;
 
-    fn encode<'a, S>(s: S) -> Pin<Box<dyn Stream<Item = Result<Self::Output, Self::Error>> + 'a>>
+    fn encode<'a, S>(
+        s: S,
+    ) -> Pin<Box<dyn Stream<Item = Result<Self::Output, Self::Error>> + 'a + Send>>
     where
-        S: Stream<Item = Self::Input> + 'a,
+        S: Stream<Item = Self::Input> + 'a + Send,
         S::Item: 'a,
     {
         Box::pin(s.map(|elt| T::unpack_from_slice(&elt)))
-    }
-}
-
-pub struct AndThen<T, U>(PhantomData<(T, U)>);
-
-impl<T, U> StreamCodec for AndThen<T, U>
-where
-    T: StreamCodec,
-    U: StreamCodec<Input = T::Output, Error = T::Error>,
-{
-    type Error = T::Error;
-    type Input = T::Input;
-    type Output = U::Output;
-
-    fn encode<'a, S>(s: S) -> Pin<Box<dyn Stream<Item = Result<Self::Output, Self::Error>> + 'a>>
-    where
-        S: Stream<Item = Self::Input> + 'a,
-        S::Item: 'a,
-    {
-        Box::pin(s.pipe(T::encode).map(|x: Result<T::Output, T::Error>| x.and_then(U::)))
     }
 }
