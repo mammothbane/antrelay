@@ -1,4 +1,4 @@
-use lunarrelay::net::DatagramOps;
+use antrelay::net::DatagramOps;
 
 type Address = <crate::Socket as DatagramOps>::Address;
 

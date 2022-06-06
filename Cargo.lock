@@ -57,6 +57,57 @@ dependencies = [
 ]
 
 [[package]]
+name = "antrelay"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-broadcast",
+ "async-compat",
+ "async-std",
+ "async-trait",
+ "backoff",
+ "bincode",
+ "brotli",
+ "byteorder",
+ "cfg-if",
+ "chrono",
+ "cobs",
+ "crc",
+ "ctrlc",
+ "dashmap",
+ "derive_more",
+ "either",
+ "eyre",
+ "fnv",
+ "futures",
+ "hex",
+ "lazy_static",
+ "libloading",
+ "num-traits",
+ "once_cell",
+ "packed_struct",
+ "paste",
+ "pin-project-lite",
+ "proptest",
+ "serde",
+ "serde_json",
+ "serde_repr",
+ "signal-hook",
+ "sluice",
+ "smallvec",
+ "smol",
+ "stream-cancel",
+ "structopt",
+ "tap",
+ "tokio-serial",
+ "tracing",
+ "tracing-log",
+ "tracing-subscriber",
+ "tracing-unwrap",
+ "vergen",
+]
+
+[[package]]
 name = "anyhow"
 version = "1.0.57"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -915,57 +966,6 @@ checksum = "abb12e687cfb44aa40f41fc3978ef76448f9b6038cad6aef4259d3c095a2382e"
 dependencies = [
  "cfg-if",
  "value-bag",
-]
-
-[[package]]
-name = "lunarrelay"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-broadcast",
- "async-compat",
- "async-std",
- "async-trait",
- "backoff",
- "bincode",
- "brotli",
- "byteorder",
- "cfg-if",
- "chrono",
- "cobs",
- "crc",
- "ctrlc",
- "dashmap",
- "derive_more",
- "either",
- "eyre",
- "fnv",
- "futures",
- "hex",
- "lazy_static",
- "libloading",
- "num-traits",
- "once_cell",
- "packed_struct",
- "paste",
- "pin-project-lite",
- "proptest",
- "serde",
- "serde_json",
- "serde_repr",
- "signal-hook",
- "sluice",
- "smallvec",
- "smol",
- "stream-cancel",
- "structopt",
- "tap",
- "tokio-serial",
- "tracing",
- "tracing-log",
- "tracing-subscriber",
- "tracing-unwrap",
- "vergen",
 ]
 
 [[package]]

@@ -12,7 +12,7 @@ use smol::stream::StreamExt as _;
 use structopt::StructOpt as _;
 use tap::Pipe;
 
-use lunarrelay::{
+use antrelay::{
     build,
     compose,
     io::{
@@ -51,7 +51,7 @@ type Socket = smol::net::UdpSocket;
 type Socket = smol::net::unix::UnixDatagram;
 
 fn main() -> Result<()> {
-    lunarrelay::bootstrap!(
+    antrelay::bootstrap!(
         "starting {} {} ({}, built at {} with rustc {})",
         build::PACKAGE,
         build::VERSION,
@@ -65,7 +65,7 @@ fn main() -> Result<()> {
     let trace_event_stream = trace::init()?;
 
     tracing::info!(
-        downlink_ty = ?lunarrelay::message::payload::log::Type::Startup,
+        downlink_ty = ?antrelay::message::payload::log::Type::Startup,
         application = build::PACKAGE,
         version = build::VERSION,
         build_commit = build::COMMIT_HASH,
@@ -87,7 +87,7 @@ fn main() -> Result<()> {
     smol::block_on({
         async move {
             #[cfg(unix)]
-            lunarrelay::util::dynload::apply_patches(&options.lib_dir).await;
+            antrelay::util::dynload::apply_patches(&options.lib_dir).await;
 
             let (reader, writer) = relay::connect_serial(options.serial_port, options.baud).await?;
 
@@ -98,7 +98,7 @@ fn main() -> Result<()> {
             )
             .pipe(stream_unwrap!("connecting to uplink socket"));
 
-            let uplink = receive_packets(uplink_sockets).pipe(lunarrelay::trip!(tripwire));
+            let uplink = receive_packets(uplink_sockets).pipe(antrelay::trip!(tripwire));
 
             let downlink_sockets = options.downlink_addresses.iter().cloned().map(|addr| {
                 net::socket_stream::<Socket>(addr, DEFAULT_BACKOFF.clone(), SocketMode::Connect)

@@ -36,7 +36,7 @@ use tracing_subscriber::{
     EnvFilter,
 };
 
-use lunarrelay::{
+use antrelay::{
     compose,
     futures::StreamExt as _,
     io,

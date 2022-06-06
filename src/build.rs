@@ -4,7 +4,7 @@ macro_rules! env_or_none {
     };
 }
 
-pub const PACKAGE: &str = "lunarrelay";
+pub const PACKAGE: &str = "antrelay";
 env_or_none!(VERSION, "VERGEN_BUILD_SEMVER");
 env_or_none!(COMMIT_HASH, "VERGEN_GIT_SHA");
 env_or_none!(BUILD_TIMESTAMP, "VERGEN_BUILD_TIMESTAMP");

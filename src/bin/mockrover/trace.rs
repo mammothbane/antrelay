@@ -5,14 +5,14 @@ use tracing_subscriber::{
     fmt::format::FmtSpan,
 };
 
-use lunarrelay::bootstrap;
+use antrelay::bootstrap;
 
 pub const DEFAULT_LEVEL_STR: &str = {
     cfg_if::cfg_if! {
         if #[cfg(not(debug_assertions))] {
-            "warn,lunarrelay=info,mockrover=info"
+            "warn,antrelay=info,mockrover=info"
         } else {
-            "info,lunarrelay=debug,mockrover=debug"
+            "info,antrelay=debug,mockrover=debug"
         }
     }
 };

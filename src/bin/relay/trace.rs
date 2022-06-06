@@ -7,9 +7,9 @@ use tracing_subscriber::{
     EnvFilter,
 };
 
-use lunarrelay::bootstrap;
+use antrelay::bootstrap;
 
-pub fn init() -> eyre::Result<impl Stream<Item = lunarrelay::tracing::Event>> {
+pub fn init() -> eyre::Result<impl Stream<Item = antrelay::tracing::Event>> {
     let stderr_layer = tracing_subscriber::fmt::layer()
         .with_writer(std::io::stderr)
         .with_span_events(FmtSpan::FULL ^ FmtSpan::NEW);
@@ -32,7 +32,7 @@ pub fn init() -> eyre::Result<impl Stream<Item = lunarrelay::tracing::Event>> {
     tracing_subscriber::registry()
         .with(level_filter)
         .with(stderr_layer)
-        .with(lunarrelay::tracing::EventStream::new(tx))
+        .with(antrelay::tracing::EventStream::new(tx))
         .init();
 
     Ok(rx)
@@ -43,9 +43,9 @@ fn mk_level_filter() -> EnvFilter {
         let default_str = {
             cfg_if::cfg_if! {
                 if #[cfg(not(debug_assertions))] {
-                    "warn,lunarrelay=info,relay=info"
+                    "warn,antrelay=info,relay=info"
                 } else {
-                    "info,lunarrelay=debug,relay=debug"
+                    "info,antrelay=debug,relay=debug"
                 }
             }
         };
