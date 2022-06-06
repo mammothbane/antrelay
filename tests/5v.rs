@@ -56,7 +56,7 @@ async fn test_5v_sup() -> eyre::Result<()> {
         Vec::<u8>::new(),
     );
 
-    let ack_msg: Message<Ack> = util::timeout(500, harness.csq.submit(orig_msg.clone())).await??;
+    let ack_msg: Message<Ack> = util::timeout(100, harness.csq.submit(orig_msg.clone())).await??;
 
     let payload = &ack_msg.payload;
     let header = &ack_msg.header;
@@ -89,7 +89,10 @@ async fn test_5v_sup() -> eyre::Result<()> {
 
     harness.done.close();
 
-    let (_, ser) = util::timeout(1000, smol::future::zip(pump_task, serial_task)).await?;
+    let down_next = util::timeout(100, harness.downlink.next()).await?;
+    assert_eq!(down_next, None);
+
+    let (_, ser) = util::timeout(100, smol::future::zip(pump_task, serial_task)).await?;
     ser?;
 
     Ok(())
