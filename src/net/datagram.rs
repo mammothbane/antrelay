@@ -8,7 +8,7 @@ use std::{
 };
 
 #[async_trait::async_trait]
-pub trait Datagram: Sized {
+pub trait DatagramOps: Sized {
     type Address;
     type Error = io::Error;
 
@@ -19,17 +19,19 @@ pub trait Datagram: Sized {
 }
 
 #[async_trait::async_trait]
-pub trait DatagramReceiver: Datagram {
+pub trait DatagramReceiver {
+    type Error = io::Error;
     async fn recv(&self, packet: &mut [u8]) -> Result<usize, Self::Error>;
 }
 
 #[async_trait::async_trait]
-pub trait DatagramSender: Datagram {
+pub trait DatagramSender {
+    type Error = io::Error;
     async fn send(&self, packet: &[u8]) -> Result<usize, Self::Error>;
 }
 
 #[async_trait::async_trait]
-impl Datagram for UdpSocket {
+impl DatagramOps for UdpSocket {
     type Address = SocketAddr;
 
     #[tracing::instrument(err, fields(address = Self::display_addr(address).as_str()), level = "debug")]
@@ -74,5 +76,27 @@ impl DatagramReceiver for UdpSocket {
     #[inline]
     async fn recv(&self, buf: &mut [u8]) -> io::Result<usize> {
         self.recv(buf).await
+    }
+}
+
+#[async_trait::async_trait]
+impl DatagramSender for smol::channel::Sender<Vec<u8>> {
+    type Error = smol::channel::SendError<Vec<u8>>;
+
+    async fn send(&self, packet: &[u8]) -> Result<usize, Self::Error> {
+        self.send(packet.to_vec()).await?;
+        Ok(packet.len())
+    }
+}
+
+#[async_trait::async_trait]
+impl DatagramReceiver for smol::channel::Receiver<Vec<u8>> {
+    type Error = smol::channel::RecvError;
+
+    async fn recv(&self, packet: &mut [u8]) -> Result<usize, Self::Error> {
+        let result = self.recv().await?;
+        packet.copy_from_slice(&result[..]);
+
+        Ok(result.len())
     }
 }

@@ -15,7 +15,6 @@ use lunarrelay::{
         Header,
         Message,
     },
-    standard_graph,
     util,
 };
 
@@ -46,7 +45,7 @@ async fn test_5v_sup() -> eyre::Result<()> {
     let Message {
         header,
         payload,
-    } = util::timeout(500, harness.csq.submit(&orig_msg)).await??;
+    } = util::timeout(500, harness.csq.submit(orig_msg.clone())).await??;
     let ack = payload.as_ref();
 
     assert_eq!(ack.checksum, orig_msg.payload.checksum()?[0]);

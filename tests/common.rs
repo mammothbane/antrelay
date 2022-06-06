@@ -7,7 +7,6 @@ use futures::{
     AsyncWrite,
     AsyncWriteExt,
 };
-use packed_struct::PackedStructSlice;
 use std::{
     future::Future,
     pin::Pin,
@@ -38,10 +37,12 @@ use tracing_subscriber::{
 };
 
 use lunarrelay::{
+    compose,
     futures::StreamExt as _,
     io,
     io::{
         pack_cobs,
+        unpack_cobs,
         CommandSequencer,
     },
     message::{
@@ -51,27 +52,23 @@ use lunarrelay::{
             RequestMeta,
             Server,
         },
-        payload::{
-            realtime_status::Flags,
-            Ack,
-            RealtimeStatus,
-        },
-        CRCWrap,
+        payload::Ack,
         Header,
         Message,
         OpaqueBytes,
         StandardCRC,
     },
-    relay,
-    split,
     standard_graph,
-    stream_unwrap,
     trip,
+    util::{
+        pack_message,
+        unpack_message,
+    },
     MissionEpoch,
 };
 
 pub struct Harness {
-    pub uplink:   async_broadcast::Sender<Message<OpaqueBytes>>,
+    pub uplink:   async_broadcast::Sender<Vec<u8>>,
     pub downlink: Pin<Box<dyn Stream<Item = Vec<u8>>>>,
 
     pub serial_read:  PipeReader,
@@ -96,18 +93,30 @@ pub fn construct_graph() -> Harness {
     let (mut uplink_tx, uplink_rx) = async_broadcast::broadcast(1024);
     uplink_tx.set_overflow(true);
 
-    let (fut, csq) = standard_graph::run(
-        serial_read,
+    let (drive_serial, csq, wrapped_downlink) = standard_graph::serial(
         serial_write,
-        uplink_rx.clone(),
+        compose!(map, pack_message, |v| pack_cobs(v, 0)),
+        serial_read,
+        compose!(and_then, |v| unpack_cobs(v, 0), unpack_message),
+        done_rx.clone(),
+    );
+
+    let (downlink_tx, downlink_rx) = smol::channel::unbounded();
+
+    let fut = standard_graph::run(
+        uplink_rx,
+        unpack_message,
+        std::iter::once(smol::stream::repeat(downlink_tx)),
+        pack_message,
         log_rx,
-        std::iter::empty(),
+        csq.clone(),
+        wrapped_downlink,
         done_rx.clone(),
     );
 
     Harness {
         uplink: uplink_tx,
-        downlink: Box::pin(downlink_packets),
+        downlink: Box::pin(downlink_rx),
 
         serial_read: serial_remote_read,
         serial_write: serial_remote_write,
@@ -115,7 +124,9 @@ pub fn construct_graph() -> Harness {
         csq,
         done: done_tx,
         done_rx,
-        pumps: Some(Box::pin(fut)),
+        pumps: Some(Box::pin(async move {
+            smol::future::zip(fut, drive_serial).await;
+        })),
 
         log: log_tx,
     }
@@ -125,7 +136,7 @@ pub fn trace_init() {
     let level_filter = EnvFilter::from_str("debug").unwrap();
 
     tracing_subscriber::fmt()
-        .with_writer(std::io::stderr)
+        .with_writer(std::io::stdout)
         .with_span_events(FmtSpan::CLOSE)
         .with_env_filter(level_filter)
         .pretty()
@@ -142,12 +153,14 @@ pub async fn serial_ack_backend(
 
     io::split_packets(smol::io::BufReader::new(r), 0, 1024)
         .pipe(trip!(done))
-        .then(|pkt| {
-            tracing::debug!("received packet");
-            Box::pin(async move {
-                let pkt = io::unpack_cobs(pkt?, 0)?;
+        .map(compose!(
+            and_then,
+            std::convert::identity,
+            |v| unpack_cobs(v, 0),
+            unpack_message::<OpaqueBytes>,
+            |msg: Message<OpaqueBytes>| {
+                tracing::debug!("received packet");
 
-                let msg = <Message<OpaqueBytes> as PackedStructSlice>::unpack_from_slice(&pkt)?;
                 let resp = Message::<_, StandardCRC>::new(
                     Header {
                         magic:       Default::default(),
@@ -168,12 +181,11 @@ pub async fn serial_ack_backend(
                     },
                 );
 
-                let result = resp.pack_to_vec()?;
-                let result = pack_cobs(result, 0);
-
-                Ok(result) as eyre::Result<Vec<u8>>
-            })
-        })
+                Ok(resp)
+            },
+            pack_message,
+            |v| Ok(pack_cobs(v, 0))
+        ))
         .owned_scan(w, |mut w, resp| {
             Box::pin(async move {
                 let result: eyre::Result<()> = try {

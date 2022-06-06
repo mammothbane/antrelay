@@ -46,7 +46,7 @@ use lunarrelay::{
     net::{
         receive_packets,
         socket_stream,
-        Datagram,
+        DatagramOps,
         SocketMode,
         DEFAULT_BACKOFF,
     },
@@ -90,7 +90,7 @@ fn main() -> eyre::Result<()> {
     .detach();
 
     smol::block_on(async move {
-        let _uplink_sock = <Socket as Datagram>::bind(&uplink_sock).await?;
+        let _uplink_sock = <Socket as DatagramOps>::bind(&uplink_sock).await?;
         tracing::info!(addr = ?uplink_sock, "bound uplink socket");
 
         let downlink_fut = downlink
@@ -167,7 +167,7 @@ async fn send_serial(path: String) -> eyre::Result<impl Stream<Item = eyre::Resu
 
 #[tracing::instrument(fields(addr = ?addr), skip(done), err(Display))]
 async fn log_all(
-    addr: <Socket as Datagram>::Address,
+    addr: <Socket as DatagramOps>::Address,
     done: impl Future<Output = bool>,
 ) -> eyre::Result<()> {
     let downlink_sockets =

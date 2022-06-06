@@ -7,13 +7,13 @@ use std::{
 use smol::net::unix::UnixDatagram;
 
 use crate::net::{
-    Datagram,
+    DatagramOps,
     DatagramReceiver,
     DatagramSender,
 };
 
 #[async_trait::async_trait]
-impl Datagram for UnixDatagram {
+impl DatagramOps for UnixDatagram {
     type Address = PathBuf;
 
     #[inline]

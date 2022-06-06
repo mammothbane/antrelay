@@ -18,7 +18,7 @@ use crate::{
 };
 
 pub use datagram::{
-    Datagram,
+    DatagramOps,
     DatagramReceiver,
     DatagramSender,
 };
@@ -40,7 +40,7 @@ pub fn socket_stream<Socket>(
     mode: SocketMode,
 ) -> impl Stream<Item = Result<Socket, Socket::Error>> + Unpin + Send
 where
-    Socket: Datagram,
+    Socket: DatagramOps,
     Socket::Address: Clone + Send + Sync,
     Socket::Error: Display,
 {

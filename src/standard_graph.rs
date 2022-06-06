@@ -23,10 +23,7 @@ use crate::{
         Message,
         OpaqueBytes,
     },
-    net::{
-        DatagramReceiver,
-        DatagramSender,
-    },
+    net::DatagramSender,
     relay,
     relay::wrap_relay_packets,
     split,
@@ -96,7 +93,7 @@ pub async fn run<Socket>(
     wrapped_serial_downlink: impl Stream<Item = Message<OpaqueBytes>> + Unpin + Send,
     tripwire: Receiver<!>,
 ) where
-    Socket: DatagramReceiver + DatagramSender + Send + 'static,
+    Socket: DatagramSender + Send + 'static,
     Socket::Error: Error,
 {
     let (raw_uplink, uplink_pump) =

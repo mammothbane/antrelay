@@ -1,6 +1,6 @@
-use lunarrelay::net::Datagram;
+use lunarrelay::net::DatagramOps;
 
-type Address = <crate::Socket as Datagram>::Address;
+type Address = <crate::Socket as DatagramOps>::Address;
 
 #[derive(Debug, Clone, PartialEq, Eq, structopt::StructOpt)]
 pub struct Options {
