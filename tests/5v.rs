@@ -1,8 +1,10 @@
 #![feature(never_type)]
 #![feature(try_blocks)]
 
-use crate::common::serial_ack_backend;
+use futures::StreamExt;
+
 use antrelay::{
+    io::unpack_cobs,
     message::{
         header::{
             Const,
@@ -12,11 +14,23 @@ use antrelay::{
             RequestMeta,
             Server,
         },
+        payload::{
+            Ack,
+            RealtimeStatus,
+        },
         Header,
+        HeaderPacket,
         Message,
+        OpaqueBytes,
     },
     util,
+    util::{
+        pack_message,
+        unpack_message,
+    },
 };
+
+use crate::common::serial_ack_backend;
 
 mod common;
 
@@ -42,11 +56,12 @@ async fn test_5v_sup() -> eyre::Result<()> {
         Vec::<u8>::new(),
     );
 
-    let Message {
-        header,
-        payload,
-    } = util::timeout(500, harness.csq.submit(orig_msg.clone())).await??;
-    let ack = payload.as_ref();
+    let ack_msg: Message<Ack> = util::timeout(500, harness.csq.submit(orig_msg.clone())).await??;
+
+    let payload = &ack_msg.payload;
+    let header = &ack_msg.header;
+
+    let ack: &Ack = payload.as_ref();
 
     assert_eq!(ack.checksum, orig_msg.payload.checksum()?[0]);
     assert_eq!(ack.seq, orig_msg.header.seq);
@@ -59,6 +74,18 @@ async fn test_5v_sup() -> eyre::Result<()> {
         server:              Server::CentralStation,
         conversation_type:   Conversation::VoltageSupplied,
     });
+
+    let pkt = harness.downlink.next().await.ok_or(eyre::eyre!("awaiting downlink result"))?;
+    let msg = unpack_message::<HeaderPacket<RealtimeStatus, OpaqueBytes>>(pkt)?;
+
+    assert_eq!(msg.header.ty.conversation_type, Conversation::Relay);
+    assert_eq!(msg.header.destination, Destination::Ground);
+    assert_eq!(msg.header.ty.server, Server::Frontend);
+
+    let inner = msg.payload.as_ref();
+
+    let packed_ack = pack_message(ack_msg.clone())?;
+    assert_eq!(unpack_cobs(inner.payload.to_vec(), 0)?, &packed_ack[..]);
 
     harness.done.close();
 

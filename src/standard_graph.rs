@@ -39,13 +39,13 @@ pub fn serial(
     serial_downlink_decode: impl Fn(Vec<u8>) -> eyre::Result<Message<OpaqueBytes>> + Send + 'static,
     tripwire: Receiver<!>,
 ) -> (impl Future<Output = ()>, Arc<CommandSequencer>, impl Stream<Item = Message<OpaqueBytes>>) {
-    let (serial_downlink, pump_serial_reader) = serial_downlink_io
+    let (raw_serial_downlink, pump_serial_reader) = serial_downlink_io
         .pipe(|r| io::split_packets(smol::io::BufReader::new(r), 0, 8192))
         .pipe(stream_unwrap!("splitting serial downlink packets"))
         .pipe(trip!(tripwire))
         .pipe(split!());
 
-    let serial_downlink_packets = serial_downlink
+    let serial_downlink_packets = raw_serial_downlink
         .clone()
         .map(serial_downlink_decode)
         .pipe(stream_unwrap!("parsing serial downlink packets"));
@@ -70,7 +70,7 @@ pub fn serial(
     let csq = Arc::new(csq);
 
     let wrapped_serial_downlink = wrap_relay_packets(
-        serial_downlink,
+        raw_serial_downlink,
         smol::stream::repeat(RealtimeStatus {
             memory_usage: 0,
             logs_pending: 0,

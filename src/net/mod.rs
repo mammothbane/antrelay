@@ -34,6 +34,15 @@ pub enum SocketMode {
     Bind,
 }
 
+lazy_static::lazy_static! {
+    pub static ref DEFAULT_BACKOFF: backoff::exponential::ExponentialBackoff<backoff::SystemClock> = backoff::ExponentialBackoffBuilder::new()
+        .with_initial_interval(Duration::from_millis(25))
+        .with_max_interval(Duration::from_secs(5))
+        .with_randomization_factor(0.5)
+        .with_max_elapsed_time(None)
+        .build();
+}
+
 pub fn socket_stream<Socket>(
     address: Socket::Address,
     backoff: impl Backoff + Clone + Send + Sync,
@@ -112,13 +121,4 @@ where
 
         Some(((sockets, Some(sock)), result))
     })
-}
-
-lazy_static::lazy_static! {
-    pub static ref DEFAULT_BACKOFF: backoff::exponential::ExponentialBackoff<backoff::SystemClock> = backoff::ExponentialBackoffBuilder::new()
-        .with_initial_interval(Duration::from_millis(25))
-        .with_max_interval(Duration::from_secs(3))
-        .with_randomization_factor(0.5)
-        .with_max_elapsed_time(None)
-        .build();
 }
