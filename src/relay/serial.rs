@@ -1,3 +1,8 @@
+use std::{
+    borrow::Borrow,
+    sync::Arc,
+};
+
 use async_std::prelude::Stream;
 use backoff::backoff::Backoff;
 use eyre::WrapErr;
@@ -6,34 +11,26 @@ use futures::{
     AsyncWrite,
 };
 use smol::prelude::*;
-use std::{
-    borrow::Borrow,
-    sync::Arc,
-};
 use tap::Pipe;
 
 use crate::{
     io::CommandSequencer,
     message::{
         header::{
+            Clock,
             Conversation,
             Destination,
-            Disposition,
-            RequestMeta,
-            Server,
         },
         payload::{
             realtime_status::RealtimeStatus,
             Ack,
             RelayPacket,
         },
-        CRCWrap,
         Header,
         Message,
         OpaqueBytes,
     },
     stream_unwrap,
-    MissionEpoch,
 };
 
 #[tracing::instrument(level = "debug")]
@@ -109,26 +106,17 @@ where
 
 #[inline]
 #[tracing::instrument(skip_all)]
-pub fn wrap_relay_packets(
+pub fn wrap_relay_packets<C>(
     packets: impl Stream<Item = Vec<u8>>,
     status: impl Stream<Item = RealtimeStatus>,
-) -> impl Stream<Item = Message<RelayPacket>> {
-    packets.zip(status).map(|(packet, status)| Message {
-        header:  Header {
-            magic:       Default::default(),
-            destination: Destination::Ground,
-            timestamp:   MissionEpoch::now(),
-            seq:         0, // TODO
-            ty:          RequestMeta {
-                disposition:         Disposition::Response,
-                request_was_invalid: false,
-                server:              Server::Frontend,
-                conversation_type:   Conversation::Relay,
-            },
-        },
-        payload: CRCWrap::new(RelayPacket {
+) -> impl Stream<Item = Message<RelayPacket>>
+where
+    C: Clock,
+{
+    packets.zip(status).map(|(packet, status)| {
+        Message::new(Header::downlink::<C>(0, Conversation::Relay), RelayPacket {
             header:  status,
             payload: packet,
-        }),
+        })
     })
 }

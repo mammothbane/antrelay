@@ -105,7 +105,7 @@ fn main() -> Result<()> {
                     .pipe(stream_unwrap!("connecting to downlink socket"))
             });
 
-            let (serial_pump, csq, serial_downlink) = standard_graph::serial(
+            let (serial_pump, csq, serial_downlink) = standard_graph::serial::<chrono::Utc>(
                 writer,
                 compose!(map, pack_message, |v| pack_cobs(v, 0u8)),
                 reader,

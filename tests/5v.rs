@@ -1,5 +1,6 @@
 #![feature(never_type)]
 #![feature(try_blocks)]
+#![feature(explicit_generic_args_with_impl_trait)]
 
 use futures::StreamExt;
 
@@ -30,6 +31,8 @@ use antrelay::{
     },
 };
 
+use common::Harness;
+
 use crate::common::serial_ack_backend;
 
 mod common;
@@ -38,7 +41,7 @@ mod common;
 async fn test_5v_sup() -> eyre::Result<()> {
     common::trace_init();
 
-    let mut harness = common::construct_graph();
+    let mut harness = Harness::new();
 
     harness.uplink.close();
 

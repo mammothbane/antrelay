@@ -1,33 +1,20 @@
 #![allow(unused_attributes)]
+#![allow(dead_code)]
 #![feature(never_type)]
 #![feature(try_blocks)]
+#![feature(explicit_generic_args_with_impl_trait)]
+
+use std::str::FromStr;
 
 use futures::{
     AsyncRead,
     AsyncWrite,
     AsyncWriteExt,
 };
-use std::{
-    future::Future,
-    pin::Pin,
-    str::FromStr,
-    sync::Arc,
-};
-
-use sluice::pipe::{
-    PipeReader,
-    PipeWriter,
-};
 use smol::{
     self,
-    channel::{
-        Receiver,
-        Sender,
-    },
-    stream::{
-        Stream,
-        StreamExt,
-    },
+    channel::Receiver,
+    stream::StreamExt,
 };
 use tap::Pipe;
 use tracing::Instrument;
@@ -43,7 +30,6 @@ use antrelay::{
     io::{
         pack_cobs,
         unpack_cobs,
-        CommandSequencer,
     },
     message::{
         header::{
@@ -58,7 +44,6 @@ use antrelay::{
         OpaqueBytes,
         StandardCRC,
     },
-    standard_graph,
     trip,
     util::{
         pack_message,
@@ -67,70 +52,11 @@ use antrelay::{
     MissionEpoch,
 };
 
-pub struct Harness {
-    pub uplink:   async_broadcast::Sender<Vec<u8>>,
-    pub downlink: Pin<Box<dyn Stream<Item = Vec<u8>>>>,
+pub use dummy_clock::DummyClock;
+pub use harness::Harness;
 
-    pub serial_read:  PipeReader,
-    pub serial_write: PipeWriter,
-    pub csq:          Arc<CommandSequencer>,
-
-    pub done:    Sender<!>,
-    pub done_rx: Receiver<!>,
-
-    pub log: Sender<Message<OpaqueBytes>>,
-
-    pub pumps: Option<Pin<Box<dyn Future<Output = ()> + Send>>>,
-}
-
-pub fn construct_graph() -> Harness {
-    let (serial_read, serial_remote_write) = sluice::pipe::pipe();
-    let (serial_remote_read, serial_write) = sluice::pipe::pipe();
-
-    let (log_tx, log_rx) = smol::channel::unbounded();
-    let (done_tx, done_rx) = smol::channel::bounded(1);
-
-    let (mut uplink_tx, uplink_rx) = async_broadcast::broadcast(1024);
-    uplink_tx.set_overflow(true);
-
-    let (drive_serial, csq, wrapped_downlink) = standard_graph::serial(
-        serial_write,
-        compose!(map, pack_message, |v| pack_cobs(v, 0)),
-        serial_read,
-        compose!(and_then, |v| unpack_cobs(v, 0), unpack_message),
-        done_rx.clone(),
-    );
-
-    let (downlink_tx, downlink_rx) = smol::channel::unbounded();
-
-    let fut = standard_graph::run(
-        uplink_rx,
-        unpack_message,
-        std::iter::once(smol::stream::repeat(downlink_tx)),
-        pack_message,
-        log_rx,
-        csq.clone(),
-        wrapped_downlink,
-        done_rx.clone(),
-    );
-
-    Harness {
-        uplink: uplink_tx,
-        downlink: Box::pin(downlink_rx),
-
-        serial_read: serial_remote_read,
-        serial_write: serial_remote_write,
-
-        csq,
-        done: done_tx,
-        done_rx,
-        pumps: Some(Box::pin(async move {
-            smol::future::zip(fut, drive_serial).await;
-        })),
-
-        log: log_tx,
-    }
-}
+mod dummy_clock;
+mod harness;
 
 pub fn trace_init() {
     let level_filter = EnvFilter::from_str("debug").unwrap();
