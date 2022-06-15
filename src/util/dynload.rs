@@ -9,7 +9,7 @@ use smol::stream::StreamExt;
 use tap::Pipe;
 
 #[tracing::instrument(fields(path = %dir.as_ref().display()), skip(dir))]
-pub async fn apply_patches(dir: impl AsRef<Path>) {
+pub async unsafe fn apply_patches(dir: impl AsRef<Path>) {
     let dir = match smol::fs::read_dir(dir).await {
         Err(e) => {
             tracing::warn!(error = %e, "unable to read lib directory");
@@ -34,7 +34,7 @@ pub async fn apply_patches(dir: impl AsRef<Path>) {
     paths.into_iter().for_each(|path| {
         let _span = tracing::info_span!("loading dynamic library", path = ?path).entered();
 
-        match unsafe { libloading::Library::new(path) } {
+        match libloading::Library::new(path) {
             Ok(_) => tracing::info!("loaded ok"),
             Err(e) => tracing::error!(error = %e, "failed loading"),
         }

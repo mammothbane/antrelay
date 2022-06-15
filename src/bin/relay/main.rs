@@ -87,7 +87,9 @@ fn main() -> Result<()> {
     smol::block_on({
         async move {
             #[cfg(unix)]
-            antrelay::util::dynload::apply_patches(&options.lib_dir).await;
+            unsafe {
+                antrelay::util::dynload::apply_patches(&options.lib_dir).await;
+            }
 
             let (reader, writer) = relay::connect_serial(options.serial_port, options.baud).await?;
 
