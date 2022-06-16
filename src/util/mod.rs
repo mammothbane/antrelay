@@ -14,8 +14,21 @@ use crate::{
     trace_catch,
 };
 
+mod clock;
 #[cfg(unix)]
 pub mod dynload;
+mod seq;
+
+pub use clock::Clock;
+pub use seq::{
+    Const,
+    Seq,
+};
+
+pub trait Environment {
+    type Clock: Clock;
+    type Seq: Seq;
+}
 
 #[inline(always)]
 pub fn compose<A, B, C, G, F>(f: F, g: G) -> impl Fn(A) -> C

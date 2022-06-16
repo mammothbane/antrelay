@@ -17,7 +17,6 @@ use crate::{
     io::CommandSequencer,
     message::{
         header::{
-            Clock,
             Conversation,
             Destination,
         },
@@ -31,6 +30,7 @@ use crate::{
         OpaqueBytes,
     },
     stream_unwrap,
+    util::Clock,
 };
 
 #[tracing::instrument(level = "debug")]

@@ -13,10 +13,7 @@ use crate::{
     io,
     io::CommandSequencer,
     message::{
-        header::{
-            Clock,
-            Conversation,
-        },
+        header::Conversation,
         payload::{
             realtime_status::Flags,
             RealtimeStatus,
@@ -32,7 +29,10 @@ use crate::{
     split,
     stream_unwrap,
     trip,
-    util::splittable_stream,
+    util::{
+        splittable_stream,
+        Clock,
+    },
 };
 
 pub fn serial<C>(

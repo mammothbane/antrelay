@@ -8,7 +8,6 @@ use antrelay::{
     io::unpack_cobs,
     message::{
         header::{
-            Const,
             Conversation,
             Destination,
             Disposition,
@@ -24,10 +23,11 @@ use antrelay::{
         Message,
         OpaqueBytes,
     },
-    util,
     util::{
+        self,
         pack_message,
         unpack_message,
+        Const,
     },
 };
 

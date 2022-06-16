@@ -6,6 +6,7 @@ use crate::{
         MagicValue,
         UniqueId,
     },
+    util::Clock,
     MissionEpoch,
 };
 
@@ -34,26 +35,6 @@ pub struct Header {
     pub seq:         u8,
     #[packed_field(size_bytes = "1")]
     pub ty:          RequestMeta,
-}
-
-pub trait Clock {
-    fn now() -> MissionEpoch;
-}
-
-impl Clock for chrono::Utc {
-    #[inline]
-    fn now() -> MissionEpoch {
-        Self::now().into()
-    }
-}
-
-pub struct Const<const C: u32>;
-
-impl<const C: u32> Clock for Const<C> {
-    #[inline]
-    fn now() -> MissionEpoch {
-        C.into()
-    }
 }
 
 impl Header {

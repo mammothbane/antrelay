@@ -4,7 +4,10 @@
 #![feature(try_blocks)]
 #![feature(explicit_generic_args_with_impl_trait)]
 
-use std::str::FromStr;
+use std::{
+    str::FromStr,
+    sync::atomic::AtomicU32,
+};
 
 use futures::{
     AsyncRead,
@@ -52,11 +55,11 @@ use antrelay::{
     MissionEpoch,
 };
 
-pub use dummy_clock::DummyClock;
 pub use harness::Harness;
 
-mod dummy_clock;
 mod harness;
+
+antrelay::atomic_seq!(pub DummyClock, AtomicU32, u32);
 
 pub fn trace_init() {
     let level_filter = EnvFilter::from_str("debug").unwrap();
