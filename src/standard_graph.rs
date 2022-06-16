@@ -31,11 +31,11 @@ use crate::{
     trip,
     util::{
         splittable_stream,
-        Clock,
+        PacketEnv,
     },
 };
 
-pub fn serial<C>(
+pub fn serial<'a, Env>(
     serial_uplink_io: impl AsyncWrite + Unpin + 'static,
     serial_uplink_encode: impl Fn(Message<OpaqueBytes>) -> eyre::Result<Vec<u8>> + Send + 'static,
     serial_downlink_io: impl AsyncRead + Unpin + Send + 'static,
@@ -43,7 +43,7 @@ pub fn serial<C>(
     tripwire: Receiver<!>,
 ) -> (impl Future<Output = ()>, Arc<CommandSequencer>, impl Stream<Item = Message<OpaqueBytes>>)
 where
-    C: Clock,
+    Env: PacketEnv<'a, 'a>,
 {
     let (raw_serial_downlink, pump_serial_reader) = serial_downlink_io
         .pipe(|r| io::split_packets(smol::io::BufReader::new(r), 0, 8192))
@@ -75,7 +75,7 @@ where
 
     let csq = Arc::new(csq);
 
-    let wrapped_serial_downlink = wrap_relay_packets::<C>(
+    let wrapped_serial_downlink = wrap_relay_packets::<Env>(
         raw_serial_downlink,
         smol::stream::repeat(RealtimeStatus {
             memory_usage: 0,
@@ -89,7 +89,7 @@ where
     (drive_serial, csq, wrapped_serial_downlink)
 }
 
-pub async fn run<Socket>(
+pub async fn run<'a, Env, Socket>(
     uplink: impl Stream<Item = Vec<u8>> + Unpin + Send,
     uplink_decode: impl Fn(Vec<u8>) -> eyre::Result<Message<OpaqueBytes>> + Send,
     downlink_sockets: impl IntoIterator<Item = impl Stream<Item = Socket> + Unpin>,
@@ -101,6 +101,7 @@ pub async fn run<Socket>(
 ) where
     Socket: DatagramSender + Send + 'static,
     Socket::Error: Error,
+    Env: PacketEnv<'a, 'a>,
 {
     let (raw_uplink, uplink_pump) =
         uplink.pipe(trip!(tripwire)).pipe(|s| splittable_stream(s, 1024));
@@ -112,9 +113,8 @@ pub async fn run<Socket>(
         relay::relay_uplink_to_serial(uplink, csq.clone(), relay::SERIAL_REQUEST_BACKOFF.clone())
             .for_each(|_| {});
 
-    let wrapped_uplink = raw_uplink.map(|uplink_pkt| {
-        Message::new(Header::downlink::<chrono::Utc>(0, Conversation::Relay), uplink_pkt)
-    });
+    let wrapped_uplink = raw_uplink
+        .map(|uplink_pkt| Message::new(Header::downlink::<Env>(Conversation::Relay), uplink_pkt));
 
     let downlink_packets = futures::stream_select![
         wrapped_uplink,

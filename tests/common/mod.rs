@@ -51,6 +51,10 @@ use antrelay::{
     util::{
         pack_message,
         unpack_message,
+        Clock,
+        PacketEnv,
+        Reader,
+        Seq,
     },
     MissionEpoch,
 };
@@ -59,7 +63,29 @@ pub use harness::Harness;
 
 mod harness;
 
-antrelay::atomic_seq!(pub DummyClock, AtomicU32, u32);
+antrelay::atomic_seq!(DummySeq);
+antrelay::atomic_seq!(DummyClock, AtomicU32, u32);
+
+pub struct TestEnv;
+
+impl PacketEnv<'static, 'static> for TestEnv {}
+
+lazy_static::lazy_static! {
+    static ref DUMMY_CLOCK_INSTANCE: DummyClock = DummyClock::new();
+    static ref DUMMY_SEQ_INSTANCE: DummySeq = DummySeq::new();
+}
+
+impl Reader<'static, dyn Clock + 'static> for TestEnv {
+    fn ask() -> &'static dyn Clock {
+        &*DUMMY_CLOCK_INSTANCE
+    }
+}
+
+impl Reader<'static, dyn Seq<Output = u8> + 'static> for TestEnv {
+    fn ask() -> &'static dyn Seq<Output = u8> {
+        &*DUMMY_SEQ_INSTANCE
+    }
+}
 
 pub fn trace_init() {
     let level_filter = EnvFilter::from_str("debug").unwrap();

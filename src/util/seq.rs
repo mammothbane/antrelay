@@ -1,7 +1,7 @@
 pub trait Seq {
     type Output;
 
-    fn next() -> Self::Output;
+    fn next(&self) -> Self::Output;
 }
 
 pub struct Const<const C: u32>;
@@ -9,7 +9,7 @@ pub struct Const<const C: u32>;
 impl<const C: u32> Seq for Const<C> {
     type Output = u32;
 
-    fn next() -> Self::Output {
+    fn next(&self) -> Self::Output {
         C
     }
 }
@@ -21,20 +21,21 @@ macro_rules! seq {
     };
 
     ($vis:vis $tyname:ident, $wrappedty:ty, $innerty:ty, $init:expr, $next:expr) => {
-        ::paste::paste! {
-            $vis struct $tyname($wrappedty);
+        $vis struct $tyname($wrappedty);
 
-            ::lazy_static::lazy_static! {
-                static ref [< __ $tyname _INSTANCE >]: $tyname = $tyname($init);
+        impl $tyname {
+            #[inline]
+            $vis fn new() -> Self {
+                Self($init)
             }
+        }
 
-            impl $crate::util::Seq for $tyname {
-                type Output = $innerty;
+        impl $crate::util::Seq for $tyname {
+            type Output = $innerty;
 
-                fn next() -> Self::Output {
-                    let val: &$wrappedty = &[< __ $tyname _INSTANCE >].0;
-                    ($next)(val)
-                }
+            #[inline]
+            fn next(&self) -> Self::Output {
+                ($next)(&self.0)
             }
         }
     };

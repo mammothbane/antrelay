@@ -6,7 +6,11 @@ use crate::{
         MagicValue,
         UniqueId,
     },
-    util::Clock,
+    util::{
+        Clock,
+        PacketEnv,
+        Seq,
+    },
     MissionEpoch,
 };
 
@@ -39,17 +43,20 @@ pub struct Header {
 
 impl Header {
     #[inline]
-    pub fn downlink<C>(seq: u8, kind: Conversation) -> Self
+    pub fn downlink<'a, Env>(kind: Conversation) -> Self
     where
-        C: Clock,
+        Env: PacketEnv<'a, 'a>,
     {
+        let clock: &dyn Clock = Env::ask();
+        let seq: &dyn Seq<Output = u8> = Env::ask();
+
         Header {
-            magic: Default::default(),
+            magic:       Default::default(),
             destination: Destination::Ground,
 
-            timestamp: C::now(),
+            timestamp: clock.now(),
 
-            seq,
+            seq: seq.next(),
 
             ty: RequestMeta {
                 disposition:         Disposition::Response,
@@ -60,17 +67,20 @@ impl Header {
         }
     }
 
-    pub fn cs_command<C>(seq: u8, kind: Conversation) -> Self
+    pub fn cs_command<'a, Env>(kind: Conversation) -> Self
     where
-        C: Clock,
+        Env: PacketEnv<'a, 'a>,
     {
+        let clock: &dyn Clock = Env::ask();
+        let seq: &dyn Seq<Output = u8> = Env::ask();
+
         Header {
-            magic: Default::default(),
+            magic:       Default::default(),
             destination: Destination::CentralStation,
 
-            timestamp: C::now(),
+            timestamp: clock.now(),
 
-            seq,
+            seq: seq.next(),
 
             ty: RequestMeta {
                 disposition:         Disposition::Response,

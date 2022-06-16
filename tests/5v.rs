@@ -27,13 +27,15 @@ use antrelay::{
         self,
         pack_message,
         unpack_message,
-        Const,
     },
 };
 
 use common::Harness;
 
-use crate::common::serial_ack_backend;
+use crate::common::{
+    serial_ack_backend,
+    TestEnv,
+};
 
 mod common;
 
@@ -55,7 +57,7 @@ async fn test_5v_sup() -> eyre::Result<()> {
     ));
 
     let orig_msg = Message::new(
-        Header::cs_command::<Const<0>>(0, Conversation::VoltageSupplied),
+        Header::cs_command::<TestEnv>(Conversation::VoltageSupplied),
         Vec::<u8>::new(),
     );
 

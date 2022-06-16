@@ -35,6 +35,7 @@ use antrelay::{
         brotli_decompress,
         pack_message,
         unpack_message,
+        StdPacketEnv,
     },
 };
 
@@ -107,7 +108,7 @@ fn main() -> Result<()> {
                     .pipe(stream_unwrap!("connecting to downlink socket"))
             });
 
-            let (serial_pump, csq, serial_downlink) = standard_graph::serial::<chrono::Utc>(
+            let (serial_pump, csq, serial_downlink) = standard_graph::serial::<StdPacketEnv>(
                 writer,
                 compose!(map, pack_message, |v| pack_cobs(v, 0u8)),
                 reader,
@@ -115,7 +116,7 @@ fn main() -> Result<()> {
                 tripwire.clone(),
             );
 
-            let graph = standard_graph::run(
+            let graph = standard_graph::run::<StdPacketEnv, _>(
                 uplink,
                 compose!(and_then, brotli_decompress, unpack_message),
                 downlink_sockets,

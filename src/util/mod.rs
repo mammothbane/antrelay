@@ -1,3 +1,4 @@
+use chrono::Utc;
 use std::{
     future::Future,
     time::Duration,
@@ -17,17 +18,43 @@ use crate::{
 mod clock;
 #[cfg(unix)]
 pub mod dynload;
+mod reader;
 mod seq;
 
 pub use clock::Clock;
+pub use reader::Reader;
 pub use seq::{
     Const,
     Seq,
 };
 
-pub trait Environment {
-    type Clock: Clock;
-    type Seq: Seq;
+crate::atomic_seq!(U8SequenceNumbers);
+
+pub trait PacketEnv<'c, 's>:
+    Reader<'c, dyn Clock + 'c> + Reader<'s, dyn Seq<Output = u8> + 's>
+{
+}
+
+pub struct StdPacketEnv;
+
+lazy_static::lazy_static! {
+    static ref GLOBAL_SEQ: U8SequenceNumbers = U8SequenceNumbers::new();
+}
+
+impl PacketEnv<'static, 'static> for StdPacketEnv {}
+
+impl Reader<'static, dyn Clock + 'static> for StdPacketEnv {
+    #[inline]
+    fn ask() -> &'static dyn Clock {
+        &Utc
+    }
+}
+
+impl Reader<'static, dyn Seq<Output = u8> + 'static> for StdPacketEnv {
+    #[inline]
+    fn ask() -> &'static dyn Seq<Output = u8> {
+        &*GLOBAL_SEQ
+    }
 }
 
 #[inline(always)]

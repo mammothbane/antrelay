@@ -34,7 +34,7 @@ use antrelay::{
     },
 };
 
-use crate::common::DummyClock;
+use crate::common::TestEnv;
 
 pub struct Harness {
     pub uplink:   async_broadcast::Sender<Vec<u8>>,
@@ -63,7 +63,7 @@ impl Harness {
         let (mut uplink_tx, uplink_rx) = async_broadcast::broadcast(1024);
         uplink_tx.set_overflow(true);
 
-        let (drive_serial, csq, wrapped_downlink) = standard_graph::serial::<DummyClock>(
+        let (drive_serial, csq, wrapped_downlink) = standard_graph::serial::<TestEnv>(
             serial_write,
             compose!(map, pack_message, |v| pack_cobs(v, 0)),
             serial_read,
@@ -73,7 +73,7 @@ impl Harness {
 
         let (downlink_tx, downlink_rx) = smol::channel::unbounded();
 
-        let fut = standard_graph::run(
+        let fut = standard_graph::run::<TestEnv, _>(
             uplink_rx,
             unpack_message,
             std::iter::once(smol::stream::repeat(downlink_tx)),
