@@ -6,11 +6,7 @@ use crate::{
         MagicValue,
         UniqueId,
     },
-    util::{
-        Clock,
-        Reader,
-        Seq,
-    },
+    util::PacketEnv,
     MissionEpoch,
 };
 
@@ -43,14 +39,14 @@ pub struct Header {
 
 impl Header {
     #[inline]
-    pub fn downlink(env: &(impl Clock + Seq<Output = u8>), kind: Conversation) -> Self {
+    pub fn downlink(env: &PacketEnv, kind: Conversation) -> Self {
         Header {
             magic:       Default::default(),
             destination: Destination::Ground,
 
-            timestamp: env.now(),
+            timestamp: env.clock.now(),
 
-            seq: env.next(),
+            seq: env.seq.next(),
 
             ty: RequestMeta {
                 disposition:         Disposition::Response,
@@ -61,14 +57,14 @@ impl Header {
         }
     }
 
-    pub fn cs_command(env: &(impl Clock + Seq<Output = u8>), kind: Conversation) -> Self {
+    pub fn cs_command(env: &PacketEnv, kind: Conversation) -> Self {
         Header {
             magic:       Default::default(),
             destination: Destination::CentralStation,
 
-            timestamp: env.now(),
+            timestamp: env.clock.now(),
 
-            seq: env.next(),
+            seq: env.seq.next(),
 
             ty: RequestMeta {
                 disposition:         Disposition::Response,

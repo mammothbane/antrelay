@@ -31,26 +31,26 @@ use crate::{
     trip,
     util::{
         splittable_stream,
-        Clock,
         GroundLinkCodec,
-        Reader,
-        Seq,
+        PacketEnv,
         SerialCodec,
     },
 };
 
-pub fn serial(
-    env: &(impl Clock + Seq<Output = u8> + Reader<SerialCodec>),
+pub fn serial<'s, 'p, 'o>(
+    (codec, packet_env): (&'s SerialCodec, &'p PacketEnv),
     serial_uplink_io: impl AsyncWrite + Unpin + 'static,
     serial_downlink_io: impl AsyncRead + Unpin + Send + 'static,
     tripwire: Receiver<!>,
 ) -> (
-    impl Future<Output = ()> + '_,
+    impl Future<Output = ()> + 'o,
     Arc<CommandSequencer>,
-    impl Stream<Item = Message<OpaqueBytes>> + '_,
-) {
-    let codec: &SerialCodec = env.ask();
-
+    impl Stream<Item = Message<OpaqueBytes>> + 'o,
+)
+where
+    's: 'o,
+    'p: 'o,
+{
     let (raw_serial_downlink, pump_serial_reader) = serial_downlink_io
         .pipe(|r| io::split_packets(smol::io::BufReader::new(r), 0, 8192))
         .pipe(stream_unwrap!("splitting serial downlink packets"))
@@ -82,7 +82,7 @@ pub fn serial(
     let csq = Arc::new(csq);
 
     let wrapped_serial_downlink = wrap_relay_packets(
-        env,
+        packet_env,
         raw_serial_downlink,
         smol::stream::repeat(RealtimeStatus {
             memory_usage: 0,
@@ -97,7 +97,7 @@ pub fn serial(
 }
 
 pub async fn run<Socket>(
-    env: &(impl Clock + Seq<Output = u8> + Reader<GroundLinkCodec> + Send + Sync),
+    (link_codec, packet_env): (&GroundLinkCodec, &PacketEnv),
     uplink: impl Stream<Item = Vec<u8>> + Unpin + Send,
     downlink_sockets: impl IntoIterator<Item = impl Stream<Item = Socket> + Unpin>,
     trace_event: impl Stream<Item = Message<OpaqueBytes>> + Unpin + Send,
@@ -111,24 +111,25 @@ pub async fn run<Socket>(
     let (raw_uplink, uplink_pump) =
         uplink.pipe(trip!(tripwire)).pipe(|s| splittable_stream(s, 1024));
 
-    let codec: &GroundLinkCodec<eyre::Report> = env.ask();
-
-    let uplink =
-        raw_uplink.clone().map(&codec.deserialize).pipe(stream_unwrap!("unpacking uplink packet"));
+    let uplink = raw_uplink
+        .clone()
+        .map(&link_codec.deserialize)
+        .pipe(stream_unwrap!("unpacking uplink packet"));
 
     let pump_uplink_to_serial =
         relay::relay_uplink_to_serial(uplink, csq.clone(), relay::SERIAL_REQUEST_BACKOFF.clone())
             .for_each(|_| {});
 
-    let wrapped_uplink = raw_uplink
-        .map(|uplink_pkt| Message::new(Header::downlink(env, Conversation::Relay), uplink_pkt));
+    let wrapped_uplink = raw_uplink.map(|uplink_pkt| {
+        Message::new(Header::downlink(packet_env, Conversation::Relay), uplink_pkt)
+    });
 
     let downlink_packets = futures::stream_select![
         wrapped_uplink,
         trace_event.pipe(trip!(noclone tripwire)),
         wrapped_serial_downlink
     ]
-    .map(&codec.serialize)
+    .map(&link_codec.serialize)
     .pipe(stream_unwrap!("encoding downlink message"));
 
     let downlink = relay::send_downlink::<Socket>(downlink_packets, downlink_sockets);

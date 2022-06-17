@@ -7,23 +7,13 @@
 #![feature(iter_intersperse)]
 #![deny(unsafe_code)]
 
-use chrono::Utc;
 use eyre::Result;
-use hlist::{
-    Find,
-    HList,
-};
 use smol::stream::StreamExt as _;
 use structopt::StructOpt as _;
 use tap::Pipe;
 
 use antrelay::{
     build,
-    compose,
-    io::{
-        pack_cobs,
-        unpack_cobs,
-    },
     net,
     net::{
         receive_packets,
@@ -36,15 +26,9 @@ use antrelay::{
     standard_graph,
     stream_unwrap,
     util::{
-        brotli_compress,
-        brotli_decompress,
-        pack_message,
-        unpack_message,
-        Clock,
-        GroundLinkCodec,
-        Seq,
-        SerialCodec,
-        U8Sequence,
+        PacketEnv,
+        DEFAULT_GROUND_CODEC,
+        DEFAULT_SERIAL_CODEC,
     },
 };
 
@@ -117,41 +101,19 @@ fn main() -> Result<()> {
                     .pipe(stream_unwrap!("connecting to downlink socket"))
             });
 
-            const SERIAL_SENTINEL: u8 = 0;
+            let serial_codec = &*DEFAULT_SERIAL_CODEC;
+            let packet_env = PacketEnv::default();
+            let link_codec = &*DEFAULT_GROUND_CODEC;
 
-            let env = hlist::Nil
-                .push(SerialCodec {
-                    serialize:   Box::new(compose!(map, pack_message, |v| pack_cobs(
-                        v,
-                        SERIAL_SENTINEL
-                    ))),
-                    deserialize: Box::new(compose!(
-                        and_then,
-                        |v| unpack_cobs(v, SERIAL_SENTINEL),
-                        unpack_message
-                    )),
-                    sentinel:    SERIAL_SENTINEL,
-                })
-                .push(GroundLinkCodec {
-                    serialize:   Box::new(compose!(
-                        and_then,
-                        pack_message,
-                        |v| Ok(pack_cobs(v, SERIAL_SENTINEL)),
-                        brotli_compress
-                    )),
-                    deserialize: Box::new(compose!(and_then, brotli_decompress, unpack_message)),
-                })
-                .push(Utc)
-                .push(U8Sequence::new())
-                .push(tripwire.clone());
-
-            let f = &env as (&(dyn Find<_, _> + Seq<Output = u8> + Clock));
-
-            let (serial_pump, csq, serial_downlink) =
-                standard_graph::serial(&f, writer, reader, tripwire.clone());
+            let (serial_pump, csq, serial_downlink) = standard_graph::serial(
+                (serial_codec, &packet_env),
+                writer,
+                reader,
+                tripwire.clone(),
+            );
 
             let graph = standard_graph::run(
-                &env,
+                (link_codec, &packet_env),
                 uplink,
                 downlink_sockets,
                 trace_event_stream.pipe(dummy_log_downlink),

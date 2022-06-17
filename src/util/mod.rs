@@ -1,3 +1,4 @@
+use chrono::Utc;
 use std::{
     future::Future,
     time::Duration,
@@ -10,6 +11,10 @@ use smol::stream::{
 };
 
 use crate::{
+    io::{
+        pack_cobs,
+        unpack_cobs,
+    },
     message::Message,
     trace_catch,
 };
@@ -46,8 +51,44 @@ pub struct GroundLinkCodec<E = eyre::Report> {
 }
 
 pub struct PacketEnv {
-    pub clock: Box<dyn Clock>,
-    pub seq:   Box<dyn Seq<Output = u8>>,
+    pub clock: Box<dyn Clock + Send + Sync>,
+    pub seq:   Box<dyn Seq<Output = u8> + Send + Sync>,
+}
+
+impl Default for PacketEnv {
+    fn default() -> Self {
+        Self {
+            clock: Box::new(Utc),
+            seq:   Box::new(U8Sequence::new()),
+        }
+    }
+}
+
+pub const DEFAULT_COBS_SENTINEL: u8 = 0u8;
+
+lazy_static::lazy_static! {
+    pub static ref DEFAULT_GROUND_CODEC: GroundLinkCodec = GroundLinkCodec {
+        serialize:   Box::new(crate::compose!(
+            and_then,
+            pack_message,
+            brotli_compress
+        )),
+        deserialize: Box::new(crate::compose!(and_then, brotli_decompress, unpack_message)),
+    };
+
+    pub static ref DEFAULT_SERIAL_CODEC: SerialCodec = SerialCodec {
+        serialize:   Box::new(crate::compose!(
+            map,
+            pack_message,
+            |v| pack_cobs(v, DEFAULT_COBS_SENTINEL)
+        )),
+        deserialize: Box::new(crate::compose!(
+            and_then,
+            |v| unpack_cobs(v, DEFAULT_COBS_SENTINEL),
+            unpack_message
+        )),
+        sentinel:    DEFAULT_COBS_SENTINEL,
+    };
 }
 
 #[inline(always)]

@@ -1,5 +1,3 @@
-use hlist::Find;
-
 pub trait Seq {
     type Output;
 
@@ -13,18 +11,6 @@ impl<const C: u32> Seq for Const<C> {
 
     fn next(&self) -> Self::Output {
         C
-    }
-}
-
-impl<I, T> Seq for &dyn Find<T, I>
-where
-    T: Seq,
-{
-    type Output = T::Output;
-
-    #[inline]
-    fn next(&self) -> Self::Output {
-        self.get().next()
     }
 }
 
