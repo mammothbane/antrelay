@@ -31,20 +31,26 @@ use crate::{
     trip,
     util::{
         splittable_stream,
-        PacketEnv,
+        Clock,
+        GroundLinkCodec,
+        Reader,
+        Seq,
+        SerialCodec,
     },
 };
 
-pub fn serial<'a, Env>(
+pub fn serial(
+    env: &(impl Clock + Seq<Output = u8> + Reader<SerialCodec>),
     serial_uplink_io: impl AsyncWrite + Unpin + 'static,
-    serial_uplink_encode: impl Fn(Message<OpaqueBytes>) -> eyre::Result<Vec<u8>> + Send + 'static,
     serial_downlink_io: impl AsyncRead + Unpin + Send + 'static,
-    serial_downlink_decode: impl Fn(Vec<u8>) -> eyre::Result<Message<OpaqueBytes>> + Send + 'static,
     tripwire: Receiver<!>,
-) -> (impl Future<Output = ()>, Arc<CommandSequencer>, impl Stream<Item = Message<OpaqueBytes>>)
-where
-    Env: PacketEnv<'a, 'a>,
-{
+) -> (
+    impl Future<Output = ()> + '_,
+    Arc<CommandSequencer>,
+    impl Stream<Item = Message<OpaqueBytes>> + '_,
+) {
+    let codec: &SerialCodec = env.ask();
+
     let (raw_serial_downlink, pump_serial_reader) = serial_downlink_io
         .pipe(|r| io::split_packets(smol::io::BufReader::new(r), 0, 8192))
         .pipe(stream_unwrap!("splitting serial downlink packets"))
@@ -53,14 +59,14 @@ where
 
     let serial_downlink_packets = raw_serial_downlink
         .clone()
-        .map(serial_downlink_decode)
+        .map(&codec.deserialize)
         .pipe(stream_unwrap!("parsing serial downlink packets"));
 
     let (csq, serial_ack_results, serial_uplink_packets) =
         CommandSequencer::new(serial_downlink_packets);
 
     let encoded_serial_packets = serial_uplink_packets
-        .map(serial_uplink_encode)
+        .map(&codec.serialize)
         .pipe(trip!(tripwire))
         .pipe(stream_unwrap!("encoding serial uplink packets"));
 
@@ -75,7 +81,8 @@ where
 
     let csq = Arc::new(csq);
 
-    let wrapped_serial_downlink = wrap_relay_packets::<Env>(
+    let wrapped_serial_downlink = wrap_relay_packets(
+        env,
         raw_serial_downlink,
         smol::stream::repeat(RealtimeStatus {
             memory_usage: 0,
@@ -89,11 +96,10 @@ where
     (drive_serial, csq, wrapped_serial_downlink)
 }
 
-pub async fn run<'a, Env, Socket>(
+pub async fn run<Socket>(
+    env: &(impl Clock + Seq<Output = u8> + Reader<GroundLinkCodec> + Send + Sync),
     uplink: impl Stream<Item = Vec<u8>> + Unpin + Send,
-    uplink_decode: impl Fn(Vec<u8>) -> eyre::Result<Message<OpaqueBytes>> + Send,
     downlink_sockets: impl IntoIterator<Item = impl Stream<Item = Socket> + Unpin>,
-    downlink_encode: impl Fn(Message<OpaqueBytes>) -> eyre::Result<Vec<u8>> + Send,
     trace_event: impl Stream<Item = Message<OpaqueBytes>> + Unpin + Send,
     csq: Arc<CommandSequencer>,
     wrapped_serial_downlink: impl Stream<Item = Message<OpaqueBytes>> + Unpin + Send,
@@ -101,27 +107,28 @@ pub async fn run<'a, Env, Socket>(
 ) where
     Socket: DatagramSender + Send + 'static,
     Socket::Error: Error,
-    Env: PacketEnv<'a, 'a>,
 {
     let (raw_uplink, uplink_pump) =
         uplink.pipe(trip!(tripwire)).pipe(|s| splittable_stream(s, 1024));
 
+    let codec: &GroundLinkCodec<eyre::Report> = env.ask();
+
     let uplink =
-        raw_uplink.clone().map(uplink_decode).pipe(stream_unwrap!("unpacking uplink packet"));
+        raw_uplink.clone().map(&codec.deserialize).pipe(stream_unwrap!("unpacking uplink packet"));
 
     let pump_uplink_to_serial =
         relay::relay_uplink_to_serial(uplink, csq.clone(), relay::SERIAL_REQUEST_BACKOFF.clone())
             .for_each(|_| {});
 
     let wrapped_uplink = raw_uplink
-        .map(|uplink_pkt| Message::new(Header::downlink::<Env>(Conversation::Relay), uplink_pkt));
+        .map(|uplink_pkt| Message::new(Header::downlink(env, Conversation::Relay), uplink_pkt));
 
     let downlink_packets = futures::stream_select![
         wrapped_uplink,
         trace_event.pipe(trip!(noclone tripwire)),
         wrapped_serial_downlink
     ]
-    .map(downlink_encode)
+    .map(&codec.serialize)
     .pipe(stream_unwrap!("encoding downlink message"));
 
     let downlink = relay::send_downlink::<Socket>(downlink_packets, downlink_sockets);

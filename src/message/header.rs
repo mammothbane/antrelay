@@ -8,7 +8,7 @@ use crate::{
     },
     util::{
         Clock,
-        PacketEnv,
+        Reader,
         Seq,
     },
     MissionEpoch,
@@ -43,20 +43,14 @@ pub struct Header {
 
 impl Header {
     #[inline]
-    pub fn downlink<'a, Env>(kind: Conversation) -> Self
-    where
-        Env: PacketEnv<'a, 'a>,
-    {
-        let clock: &dyn Clock = Env::ask();
-        let seq: &dyn Seq<Output = u8> = Env::ask();
-
+    pub fn downlink(env: &(impl Clock + Seq<Output = u8>), kind: Conversation) -> Self {
         Header {
             magic:       Default::default(),
             destination: Destination::Ground,
 
-            timestamp: clock.now(),
+            timestamp: env.now(),
 
-            seq: seq.next(),
+            seq: env.next(),
 
             ty: RequestMeta {
                 disposition:         Disposition::Response,
@@ -67,20 +61,14 @@ impl Header {
         }
     }
 
-    pub fn cs_command<'a, Env>(kind: Conversation) -> Self
-    where
-        Env: PacketEnv<'a, 'a>,
-    {
-        let clock: &dyn Clock = Env::ask();
-        let seq: &dyn Seq<Output = u8> = Env::ask();
-
+    pub fn cs_command(env: &(impl Clock + Seq<Output = u8>), kind: Conversation) -> Self {
         Header {
             magic:       Default::default(),
             destination: Destination::CentralStation,
 
-            timestamp: clock.now(),
+            timestamp: env.now(),
 
-            seq: seq.next(),
+            seq: env.next(),
 
             ty: RequestMeta {
                 disposition:         Disposition::Response,

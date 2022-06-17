@@ -81,6 +81,7 @@ dependencies = [
  "fnv",
  "futures",
  "hex",
+ "hlist",
  "lazy_static",
  "libloading",
  "num-traits",
@@ -842,6 +843,16 @@ name = "hex"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
+
+[[package]]
+name = "hlist"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3fb3f962fddc9f213d9a656179f76178fbb6c831b5e95d539b2ad12c65723b15"
+dependencies = [
+ "serde",
+ "serde_derive",
+]
 
 [[package]]
 name = "idna"

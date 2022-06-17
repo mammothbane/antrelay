@@ -1,4 +1,3 @@
-use chrono::Utc;
 use std::{
     future::Future,
     time::Duration,
@@ -20,7 +19,9 @@ mod clock;
 pub mod dynload;
 mod reader;
 mod seq;
+mod state;
 
+use crate::message::OpaqueBytes;
 pub use clock::Clock;
 pub use reader::Reader;
 pub use seq::{
@@ -28,33 +29,25 @@ pub use seq::{
     Seq,
 };
 
-crate::atomic_seq!(U8SequenceNumbers);
+crate::atomic_seq!(pub U8Sequence);
 
-pub trait PacketEnv<'c, 's>:
-    Reader<'c, dyn Clock + 'c> + Reader<'s, dyn Seq<Output = u8> + 's>
-{
+type SerializeFunction<E> = dyn Fn(Message<OpaqueBytes>) -> Result<Vec<u8>, E> + Send + Sync;
+type DeserializeFunction<E> = dyn Fn(Vec<u8>) -> Result<Message<OpaqueBytes>, E> + Send + Sync;
+
+pub struct SerialCodec<E = eyre::Report> {
+    pub serialize:   Box<SerializeFunction<E>>,
+    pub deserialize: Box<DeserializeFunction<E>>,
+    pub sentinel:    u8,
 }
 
-pub struct StdPacketEnv;
-
-lazy_static::lazy_static! {
-    static ref GLOBAL_SEQ: U8SequenceNumbers = U8SequenceNumbers::new();
+pub struct GroundLinkCodec<E = eyre::Report> {
+    pub serialize:   Box<SerializeFunction<E>>,
+    pub deserialize: Box<DeserializeFunction<E>>,
 }
 
-impl PacketEnv<'static, 'static> for StdPacketEnv {}
-
-impl Reader<'static, dyn Clock + 'static> for StdPacketEnv {
-    #[inline]
-    fn ask() -> &'static dyn Clock {
-        &Utc
-    }
-}
-
-impl Reader<'static, dyn Seq<Output = u8> + 'static> for StdPacketEnv {
-    #[inline]
-    fn ask() -> &'static dyn Seq<Output = u8> {
-        &*GLOBAL_SEQ
-    }
+pub struct PacketEnv {
+    pub clock: Box<dyn Clock>,
+    pub seq:   Box<dyn Seq<Output = u8>>,
 }
 
 #[inline(always)]

@@ -30,7 +30,11 @@ use crate::{
         OpaqueBytes,
     },
     stream_unwrap,
-    util::PacketEnv,
+    util::{
+        Clock,
+        Reader,
+        Seq,
+    },
 };
 
 #[tracing::instrument(level = "debug")]
@@ -106,15 +110,18 @@ where
 
 #[inline]
 #[tracing::instrument(skip_all)]
-pub fn wrap_relay_packets<'a, Env>(
-    packets: impl Stream<Item = Vec<u8>>,
-    status: impl Stream<Item = RealtimeStatus>,
-) -> impl Stream<Item = Message<RelayPacket>>
+pub fn wrap_relay_packets<'e, 'p, 's, 'o>(
+    env: &'e (impl Clock + Seq<Output = u8>),
+    packets: impl Stream<Item = Vec<u8>> + 'p,
+    status: impl Stream<Item = RealtimeStatus> + 's,
+) -> impl Stream<Item = Message<RelayPacket>> + 'o
 where
-    Env: PacketEnv<'a, 'a>,
+    'e: 'o,
+    'p: 'o,
+    's: 'o,
 {
-    packets.zip(status).map(|(packet, status)| {
-        Message::new(Header::downlink::<Env>(Conversation::Relay), RelayPacket {
+    packets.zip(status).map(move |(packet, status)| {
+        Message::new(Header::downlink(env, Conversation::Relay), RelayPacket {
             header:  status,
             payload: packet,
         })
