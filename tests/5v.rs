@@ -26,16 +26,12 @@ use antrelay::{
     util::{
         self,
         pack_message,
-        unpack_message,
     },
 };
 
 use common::Harness;
 
-use crate::common::{
-    serial_ack_backend,
-    TestEnv,
-};
+use crate::common::serial_ack_backend;
 
 mod common;
 
@@ -51,13 +47,14 @@ async fn test_5v_sup() -> eyre::Result<()> {
     let pump_task = smol::spawn(pumps);
 
     let serial_task = smol::spawn(serial_ack_backend(
+        harness.serial_codec.clone(),
         harness.serial_read,
         harness.serial_write,
         harness.done_rx.clone(),
     ));
 
     let orig_msg = Message::new(
-        Header::cs_command::<TestEnv>(Conversation::VoltageSupplied),
+        Header::cs_command(&harness.packet_env, Conversation::VoltageSupplied),
         Vec::<u8>::new(),
     );
 
@@ -81,15 +78,21 @@ async fn test_5v_sup() -> eyre::Result<()> {
     });
 
     let pkt = harness.downlink.next().await.ok_or(eyre::eyre!("awaiting downlink result"))?;
-    let msg = unpack_message::<HeaderPacket<RealtimeStatus, OpaqueBytes>>(pkt)?;
+
+    let msg = (harness.link_codec.deserialize)(pkt)?
+        .payload_into::<HeaderPacket<RealtimeStatus, OpaqueBytes>>()?;
 
     assert_eq!(msg.header.ty.conversation_type, Conversation::Relay);
     assert_eq!(msg.header.destination, Destination::Ground);
     assert_eq!(msg.header.ty.server, Server::Frontend);
 
-    let inner = msg.payload.as_ref();
+    let inner = msg.payload;
 
-    let packed_ack = pack_message(ack_msg.clone())?;
+    let packed_ack = {
+        let mut result = pack_message(ack_msg.clone())?;
+        result.push(0);
+        result
+    };
     assert_eq!(unpack_cobs(inner.payload.to_vec(), 0)?, &packed_ack[..]);
 
     harness.done.close();

@@ -1,6 +1,7 @@
 use chrono::Utc;
 use std::{
     future::Future,
+    sync::Arc,
     time::Duration,
 };
 
@@ -40,26 +41,46 @@ type SerializeFunction<E> = dyn Fn(Message<OpaqueBytes>) -> Result<Vec<u8>, E> +
 type DeserializeFunction<E> = dyn Fn(Vec<u8>) -> Result<Message<OpaqueBytes>, E> + Send + Sync;
 
 pub struct SerialCodec<E = eyre::Report> {
-    pub serialize:   Box<SerializeFunction<E>>,
-    pub deserialize: Box<DeserializeFunction<E>>,
+    pub serialize:   Arc<SerializeFunction<E>>,
+    pub deserialize: Arc<DeserializeFunction<E>>,
     pub sentinel:    u8,
 }
 
-pub struct GroundLinkCodec<E = eyre::Report> {
-    pub serialize:   Box<SerializeFunction<E>>,
-    pub deserialize: Box<DeserializeFunction<E>>,
+impl<E> Clone for SerialCodec<E> {
+    fn clone(&self) -> Self {
+        Self {
+            serialize:   self.serialize.clone(),
+            deserialize: self.deserialize.clone(),
+            sentinel:    self.sentinel,
+        }
+    }
 }
 
+pub struct GroundLinkCodec<E = eyre::Report> {
+    pub serialize:   Arc<SerializeFunction<E>>,
+    pub deserialize: Arc<DeserializeFunction<E>>,
+}
+
+impl<E> Clone for GroundLinkCodec<E> {
+    fn clone(&self) -> Self {
+        Self {
+            serialize:   self.serialize.clone(),
+            deserialize: self.deserialize.clone(),
+        }
+    }
+}
+
+#[derive(Clone)]
 pub struct PacketEnv {
-    pub clock: Box<dyn Clock + Send + Sync>,
-    pub seq:   Box<dyn Seq<Output = u8> + Send + Sync>,
+    pub clock: Arc<dyn Clock + Send + Sync>,
+    pub seq:   Arc<dyn Seq<Output = u8> + Send + Sync>,
 }
 
 impl Default for PacketEnv {
     fn default() -> Self {
         Self {
-            clock: Box::new(Utc),
-            seq:   Box::new(U8Sequence::new()),
+            clock: Arc::new(Utc),
+            seq:   Arc::new(U8Sequence::new()),
         }
     }
 }
@@ -68,21 +89,21 @@ pub const DEFAULT_COBS_SENTINEL: u8 = 0u8;
 
 lazy_static::lazy_static! {
     pub static ref DEFAULT_GROUND_CODEC: GroundLinkCodec = GroundLinkCodec {
-        serialize:   Box::new(crate::compose!(
+        serialize:   Arc::new(crate::compose!(
             and_then,
             pack_message,
             brotli_compress
         )),
-        deserialize: Box::new(crate::compose!(and_then, brotli_decompress, unpack_message)),
+        deserialize: Arc::new(crate::compose!(and_then, brotli_decompress, unpack_message)),
     };
 
     pub static ref DEFAULT_SERIAL_CODEC: SerialCodec = SerialCodec {
-        serialize:   Box::new(crate::compose!(
+        serialize:   Arc::new(crate::compose!(
             map,
             pack_message,
             |v| pack_cobs(v, DEFAULT_COBS_SENTINEL)
         )),
-        deserialize: Box::new(crate::compose!(
+        deserialize: Arc::new(crate::compose!(
             and_then,
             |v| unpack_cobs(v, DEFAULT_COBS_SENTINEL),
             unpack_message
@@ -178,7 +199,7 @@ where
 }
 
 #[inline]
-#[tracing::instrument(skip_all, level = "trace")]
+#[tracing::instrument(err(Display), level = "debug")]
 pub fn unpack_message<T>(v: Vec<u8>) -> eyre::Result<Message<T>>
 where
     T: PackedStructSlice,
@@ -187,6 +208,7 @@ where
 }
 
 #[inline]
+#[tracing::instrument(skip(t), err(Display), ret, level = "trace")]
 pub fn pack_message<T>(t: T) -> eyre::Result<Vec<u8>>
 where
     T: PackedStructSlice,

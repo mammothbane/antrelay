@@ -57,7 +57,6 @@ impl CommandSequencer {
 
         self.uplink_q.send(msg).await?;
         let ret = rx.recv().await?;
-        tracing::debug!("post-receive");
         Ok(ret)
     }
 

@@ -17,24 +17,25 @@ use sluice::pipe::{
 };
 
 use antrelay::{
-    compose,
-    io::{
-        pack_cobs,
-        unpack_cobs,
-        CommandSequencer,
-    },
+    io::CommandSequencer,
     message::{
         Message,
         OpaqueBytes,
     },
     standard_graph,
     util::{
-        pack_message,
-        unpack_message,
+        GroundLinkCodec,
+        PacketEnv,
+        SerialCodec,
+        DEFAULT_GROUND_CODEC,
+        DEFAULT_SERIAL_CODEC,
     },
 };
 
-use crate::common::TestEnv;
+use crate::common::{
+    DummyClock,
+    DummySeq,
+};
 
 pub struct Harness {
     pub uplink:   async_broadcast::Sender<Vec<u8>>,
@@ -48,6 +49,10 @@ pub struct Harness {
     pub done_rx: Receiver<!>,
 
     pub log: Sender<Message<OpaqueBytes>>,
+
+    pub packet_env:   Arc<PacketEnv>,
+    pub serial_codec: Arc<SerialCodec>,
+    pub link_codec:   Arc<GroundLinkCodec>,
 
     pub pumps: Option<Pin<Box<dyn Future<Output = ()> + Send>>>,
 }
@@ -63,21 +68,27 @@ impl Harness {
         let (mut uplink_tx, uplink_rx) = async_broadcast::broadcast(1024);
         uplink_tx.set_overflow(true);
 
-        let (drive_serial, csq, wrapped_downlink) = standard_graph::serial::<TestEnv>(
+        let packet_env = Arc::new(PacketEnv {
+            clock: Arc::new(DummyClock::new()),
+            seq:   Arc::new(DummySeq::new()),
+        });
+
+        let serial_codec = Arc::new(DEFAULT_SERIAL_CODEC.clone());
+        let ground_codec = Arc::new(DEFAULT_GROUND_CODEC.clone());
+
+        let (drive_serial, csq, wrapped_downlink) = standard_graph::serial(
+            (serial_codec.clone(), packet_env.clone()),
             serial_write,
-            compose!(map, pack_message, |v| pack_cobs(v, 0)),
             serial_read,
-            compose!(and_then, |v| unpack_cobs(v, 0), unpack_message),
             done_rx.clone(),
         );
 
         let (downlink_tx, downlink_rx) = smol::channel::unbounded();
 
-        let fut = standard_graph::run::<TestEnv, _>(
+        let fut = standard_graph::run(
+            (ground_codec.clone(), packet_env.clone()),
             uplink_rx,
-            unpack_message,
             std::iter::once(smol::stream::repeat(downlink_tx)),
-            pack_message,
             log_rx,
             csq.clone(),
             wrapped_downlink,
@@ -97,6 +108,10 @@ impl Harness {
             pumps: Some(Box::pin(async move {
                 smol::future::zip(fut, drive_serial).await;
             })),
+
+            packet_env,
+            serial_codec,
+            link_codec: ground_codec,
 
             log: log_tx,
         }

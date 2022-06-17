@@ -5,6 +5,7 @@
 #![feature(explicit_generic_args_with_impl_trait)]
 
 use std::{
+    borrow::Borrow,
     str::FromStr,
     sync::atomic::AtomicU32,
 };
@@ -27,13 +28,8 @@ use tracing_subscriber::{
 };
 
 use antrelay::{
-    compose,
     futures::StreamExt as _,
     io,
-    io::{
-        pack_cobs,
-        unpack_cobs,
-    },
     message::{
         header::{
             Destination,
@@ -42,20 +38,14 @@ use antrelay::{
             Server,
         },
         payload::Ack,
+        CRCWrap,
         Header,
         Message,
         OpaqueBytes,
         StandardCRC,
     },
     trip,
-    util::{
-        pack_message,
-        unpack_message,
-        Clock,
-        PacketEnv,
-        Reader,
-        Seq,
-    },
+    util::SerialCodec,
     MissionEpoch,
 };
 
@@ -63,29 +53,8 @@ pub use harness::Harness;
 
 mod harness;
 
-antrelay::atomic_seq!(DummySeq);
-antrelay::atomic_seq!(DummyClock, AtomicU32, u32);
-
-pub struct TestEnv;
-
-impl PacketEnv<'static, 'static> for TestEnv {}
-
-lazy_static::lazy_static! {
-    static ref DUMMY_CLOCK_INSTANCE: DummyClock = DummyClock::new();
-    static ref DUMMY_SEQ_INSTANCE: DummySeq = DummySeq::new();
-}
-
-impl Reader<'static, dyn Clock + 'static> for TestEnv {
-    fn ask() -> &'static dyn Clock {
-        &*DUMMY_CLOCK_INSTANCE
-    }
-}
-
-impl Reader<'static, dyn Seq<Output = u8> + 'static> for TestEnv {
-    fn ask() -> &'static dyn Seq<Output = u8> {
-        &*DUMMY_SEQ_INSTANCE
-    }
-}
+antrelay::atomic_seq!(pub DummySeq);
+antrelay::atomic_seq!(pub DummyClock, AtomicU32, u32);
 
 pub fn trace_init() {
     let level_filter = EnvFilter::from_str("debug").unwrap();
@@ -100,20 +69,25 @@ pub fn trace_init() {
 
 #[tracing::instrument(skip_all, err, level = "debug")]
 pub async fn serial_ack_backend(
+    codec: impl Borrow<SerialCodec>,
     r: impl AsyncRead + Unpin + 'static,
     w: impl AsyncWrite + Unpin,
     done: Receiver<!>,
 ) -> eyre::Result<()> {
+    let codec = codec.borrow();
+
     tracing::info!("started up");
+
+    let ser = codec.serialize.clone();
+    let de = codec.deserialize.clone();
 
     io::split_packets(smol::io::BufReader::new(r), 0, 1024)
         .pipe(trip!(done))
-        .map(compose!(
-            and_then,
-            std::convert::identity,
-            |v| unpack_cobs(v, 0),
-            unpack_message::<OpaqueBytes>,
-            |msg: Message<OpaqueBytes>| {
+        .map(move |x| x.and_then(|x| de(x)))
+        .map(|x| -> eyre::Result<Message<OpaqueBytes>> {
+            try {
+                let msg = x?;
+
                 tracing::debug!("received packet");
 
                 let resp = Message::<_, StandardCRC>::new(
@@ -136,11 +110,10 @@ pub async fn serial_ack_backend(
                     },
                 );
 
-                Ok(resp)
-            },
-            pack_message,
-            |v| Ok(pack_cobs(v, 0))
-        ))
+                resp.payload_into::<CRCWrap<OpaqueBytes>>()?
+            }
+        })
+        .map(move |x| x.and_then(|x| ser(x)))
         .owned_scan(w, |mut w, resp| {
             Box::pin(async move {
                 let result: eyre::Result<()> = try {

@@ -107,7 +107,7 @@ where
 #[inline]
 #[tracing::instrument(skip_all)]
 pub fn wrap_relay_packets<'e, 'p, 's, 'o>(
-    env: &'e PacketEnv,
+    env: impl Borrow<PacketEnv> + 'e,
     packets: impl Stream<Item = Vec<u8>> + 'p,
     status: impl Stream<Item = RealtimeStatus> + 's,
 ) -> impl Stream<Item = Message<RelayPacket>> + 'o
@@ -117,7 +117,7 @@ where
     's: 'o,
 {
     packets.zip(status).map(move |(packet, status)| {
-        Message::new(Header::downlink(env, Conversation::Relay), RelayPacket {
+        Message::new(Header::downlink(env.borrow(), Conversation::Relay), RelayPacket {
             header:  status,
             payload: packet,
         })

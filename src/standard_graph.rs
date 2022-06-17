@@ -1,4 +1,5 @@
 use std::{
+    borrow::Borrow,
     error::Error,
     sync::Arc,
 };
@@ -37,36 +38,40 @@ use crate::{
     },
 };
 
-pub fn serial<'s, 'p, 'o>(
-    (codec, packet_env): (&'s SerialCodec, &'p PacketEnv),
+pub fn serial<'s, 'p, 'o, 'os>(
+    (codec, packet_env): (impl Borrow<SerialCodec> + 's, impl Borrow<PacketEnv> + 'p),
     serial_uplink_io: impl AsyncWrite + Unpin + 'static,
     serial_downlink_io: impl AsyncRead + Unpin + Send + 'static,
     tripwire: Receiver<!>,
 ) -> (
     impl Future<Output = ()> + 'o,
     Arc<CommandSequencer>,
-    impl Stream<Item = Message<OpaqueBytes>> + 'o,
+    impl Stream<Item = Message<OpaqueBytes>> + 'os,
 )
 where
-    's: 'o,
-    'p: 'o,
+    'p: 'os,
 {
+    let codec = codec.borrow();
+
     let (raw_serial_downlink, pump_serial_reader) = serial_downlink_io
         .pipe(|r| io::split_packets(smol::io::BufReader::new(r), 0, 8192))
         .pipe(stream_unwrap!("splitting serial downlink packets"))
         .pipe(trip!(tripwire))
         .pipe(split!());
 
+    let ser = codec.serialize.clone();
+    let de = codec.deserialize.clone();
+
     let serial_downlink_packets = raw_serial_downlink
         .clone()
-        .map(&codec.deserialize)
+        .map(move |x| de(x))
         .pipe(stream_unwrap!("parsing serial downlink packets"));
 
     let (csq, serial_ack_results, serial_uplink_packets) =
         CommandSequencer::new(serial_downlink_packets);
 
     let encoded_serial_packets = serial_uplink_packets
-        .map(&codec.serialize)
+        .map(move |x| ser(x))
         .pipe(trip!(tripwire))
         .pipe(stream_unwrap!("encoding serial uplink packets"));
 
@@ -97,7 +102,7 @@ where
 }
 
 pub async fn run<Socket>(
-    (link_codec, packet_env): (&GroundLinkCodec, &PacketEnv),
+    (link_codec, packet_env): (impl Borrow<GroundLinkCodec>, impl Borrow<PacketEnv> + Send),
     uplink: impl Stream<Item = Vec<u8>> + Unpin + Send,
     downlink_sockets: impl IntoIterator<Item = impl Stream<Item = Socket> + Unpin>,
     trace_event: impl Stream<Item = Message<OpaqueBytes>> + Unpin + Send,
@@ -108,20 +113,22 @@ pub async fn run<Socket>(
     Socket: DatagramSender + Send + 'static,
     Socket::Error: Error,
 {
+    let link_codec = link_codec.borrow();
+
     let (raw_uplink, uplink_pump) =
         uplink.pipe(trip!(tripwire)).pipe(|s| splittable_stream(s, 1024));
 
-    let uplink = raw_uplink
-        .clone()
-        .map(&link_codec.deserialize)
-        .pipe(stream_unwrap!("unpacking uplink packet"));
+    let ser = link_codec.serialize.clone();
+    let de = link_codec.deserialize.clone();
+
+    let uplink = raw_uplink.clone().map(&*de).pipe(stream_unwrap!("unpacking uplink packet"));
 
     let pump_uplink_to_serial =
         relay::relay_uplink_to_serial(uplink, csq.clone(), relay::SERIAL_REQUEST_BACKOFF.clone())
             .for_each(|_| {});
 
-    let wrapped_uplink = raw_uplink.map(|uplink_pkt| {
-        Message::new(Header::downlink(packet_env, Conversation::Relay), uplink_pkt)
+    let wrapped_uplink = raw_uplink.map(move |uplink_pkt| {
+        Message::new(Header::downlink(packet_env.borrow(), Conversation::Relay), uplink_pkt)
     });
 
     let downlink_packets = futures::stream_select![
@@ -129,7 +136,7 @@ pub async fn run<Socket>(
         trace_event.pipe(trip!(noclone tripwire)),
         wrapped_serial_downlink
     ]
-    .map(&link_codec.serialize)
+    .map(&*ser)
     .pipe(stream_unwrap!("encoding downlink message"));
 
     let downlink = relay::send_downlink::<Socket>(downlink_packets, downlink_sockets);
