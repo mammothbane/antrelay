@@ -95,13 +95,9 @@ where
         let mut hdr = Header::downlink(env.borrow(), Conversation::Relay);
         hdr.ty.server = Server::CentralStation;
 
-        let ret = CRCMessage::new(hdr, RelayPacket {
+        CRCMessage::new(hdr, RelayPacket {
             header:  status,
             payload: packet,
-        });
-
-        tracing::debug!(?ret, relay = ?ret.payload, "hello");
-
-        ret
+        })
     })
 }

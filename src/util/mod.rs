@@ -251,7 +251,7 @@ pub fn brotli_decompress(v: Vec<u8>) -> eyre::Result<Vec<u8>> {
     Ok(out)
 }
 
-#[tracing::instrument(level = "debug", skip(backoff, csq), err(Display), ret)]
+#[tracing::instrument(level = "debug", skip(backoff, csq), fields(%msg), err(Display), ret)]
 #[inline]
 pub async fn send(
     desc: &str,
