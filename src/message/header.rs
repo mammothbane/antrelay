@@ -164,13 +164,15 @@ pub enum Server {
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PrimitiveEnum_u8)]
 #[repr(u8)]
 pub enum Conversation {
-    Ping            = 0x01,
-    Start           = 0x02,
-    Calibrate       = 0x03,
-    RoverWillTurn   = 0x04,
-    RoverNotTurning = 0x05,
-    VoltageSupplied = 0x06,
-    Relay           = 0x07,
+    Ping              = 0x01,
+    Start             = 0x02,
+    Calibrate         = 0x03,
+    RoverWillTurn     = 0x04,
+    RoverHalting      = 0x05,
+    VoltageSupplied   = 0x06,
+    Relay             = 0x07,
+
+    GarageOpenPending = 0x0b,
 }
 
 #[cfg(test)]
@@ -251,7 +253,7 @@ mod test {
             Just(Conversation::Start),
             Just(Conversation::Calibrate),
             Just(Conversation::RoverWillTurn),
-            Just(Conversation::RoverNotTurning),
+            Just(Conversation::RoverHalting),
             Just(Conversation::VoltageSupplied),
         ]
     }

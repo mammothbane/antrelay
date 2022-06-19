@@ -1,9 +1,9 @@
 use std::{
     borrow::Borrow,
     sync::Arc,
+    time::Duration,
 };
 
-use async_std::prelude::Stream;
 use backoff::backoff::Backoff;
 use eyre::WrapErr;
 use futures::{
@@ -11,7 +11,10 @@ use futures::{
     AsyncWrite,
 };
 use smol::prelude::*;
-use tap::Pipe;
+use tap::{
+    Conv,
+    Pipe,
+};
 
 use crate::{
     io::CommandSequencer,
@@ -29,7 +32,9 @@ use crate::{
         Message,
         OpaqueBytes,
     },
+    relay::control::StateVal,
     stream_unwrap,
+    util,
     util::PacketEnv,
 };
 
@@ -102,6 +107,160 @@ where
         })
         .then(|s| s)
         .pipe(stream_unwrap!("no ack from serial connection"))
+}
+
+async fn send(
+    desc: &str,
+    msg: Message<OpaqueBytes>,
+    backoff: impl Backoff + Clone,
+    csq: impl Borrow<CommandSequencer>,
+) -> eyre::Result<Message<Ack>> {
+    let csq = csq.borrow();
+
+    let result = backoff::future::retry_notify(backoff, move || {
+        let msg = msg.clone();
+
+        async move {
+            let result = csq.submit(msg).await.map_err(backoff::Error::transient)?;
+
+            if result.header.ty.request_was_invalid {
+                return Err(backoff::Error::transient(eyre::eyre!("cs reports '{}' invalid", desc)));
+            }
+
+            Ok(result)
+        }
+    }, |e, dur| {
+        tracing::warn!(error = %e, backoff_dur = ?dur, "submitting '{}' to central station", desc);
+    }).await?;
+
+    Ok(result)
+}
+
+async fn handle_step(
+    env: impl Borrow<PacketEnv>,
+    state: StateVal,
+    mut uplink_messages: impl Stream<Item = Message<OpaqueBytes>> + Unpin,
+    backoff: impl Backoff + Clone,
+    csq: impl Borrow<CommandSequencer>,
+) -> eyre::Result<StateVal> {
+    let result = match state {
+        StateVal::FlightIdle => loop {
+            let msg = uplink_messages
+                .filter(|msg| msg.header.ty.conversation_type == Conversation::VoltageSupplied)
+                .next()
+                .await
+                .ok_or(eyre::eyre!("message stream ended"))?;
+
+            send("5v_sup", msg, backoff, csq).await?;
+            break StateVal::PingCentralStation;
+        },
+
+        StateVal::PingCentralStation => {
+            let uplink_messages = &mut uplink_messages;
+
+            loop {
+                let env = env.borrow();
+                let send = &send;
+
+                let backoff = backoff.clone();
+                let csq = csq.borrow();
+
+                let ping = async move {
+                    send(
+                        "ping",
+                        Message::new(Header::cs_command(env, Conversation::Ping), vec![]),
+                        backoff,
+                        csq,
+                    )
+                    .await?;
+                    smol::Timer::after(Duration::from_secs(30)).await;
+
+                    Ok(()) as eyre::Result<()>
+                };
+
+                let _garage_open = match util::either(
+                    uplink_messages
+                        .filter(|msg| {
+                            msg.header.ty.conversation_type == Conversation::GarageOpenPending
+                        })
+                        .next(),
+                    ping,
+                )
+                .await
+                {
+                    either::Right(_) => continue,
+                    either::Left(garage_open_msg) => {
+                        garage_open_msg.ok_or(eyre::eyre!("uplink stream closed"))?
+                    },
+                };
+
+                break StateVal::StartBLE;
+            }
+        },
+
+        StateVal::StartBLE => {
+            drop(uplink_messages);
+
+            send(
+                "ble start",
+                Message::new(Header::cs_command(env.borrow(), Conversation::Start), vec![]),
+                backoff,
+                csq,
+            )
+            .await?;
+
+            StateVal::AwaitRoverStationary
+        },
+
+        StateVal::AwaitRoverStationary => {
+            // TODO: notify stop moving?
+
+            uplink_messages
+                .filter(|msg| msg.header.ty.conversation_type == Conversation::RoverHalting)
+                .next()
+                .await
+                .ok_or(eyre::eyre!("uplink stream closed"))?;
+
+            StateVal::CalibrateIMU
+        },
+
+        StateVal::CalibrateIMU => {
+            match util::either(
+                uplink_messages
+                    .filter(|msg| msg.header.ty.conversation_type == Conversation::RoverWillTurn)
+                    .next(),
+                send(
+                    "calibrate imu",
+                    Message::new(Header::cs_command(env.borrow(), Conversation::Calibrate), vec![]),
+                    backoff,
+                    csq,
+                ),
+            )
+            .await
+            {
+                either::Left(will_turn) => {
+                    will_turn.ok_or(eyre::eyre!("uplink stream closed"))?;
+                    StateVal::AwaitRoverStationary
+                },
+                either::Right(send_result) => {
+                    send_result?;
+                    StateVal::AntRun
+                },
+            }
+        },
+
+        StateVal::AntRun => {
+            uplink_messages
+                .filter(|msg| msg.header.ty.conversation_type == Conversation::RoverWillTurn)
+                .next()
+                .await
+                .ok_or(eyre::eyre!("uplink stream closed"))?;
+
+            StateVal::AwaitRoverStationary
+        },
+    };
+
+    Ok(result)
 }
 
 #[inline]

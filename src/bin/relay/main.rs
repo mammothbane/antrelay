@@ -116,7 +116,7 @@ fn main() -> Result<()> {
                 (link_codec, &packet_env),
                 uplink,
                 downlink_sockets,
-                trace_event_stream.pipe(dummy_log_downlink),
+                trace_event_stream.pipe(|s| dummy_log_downlink(&packet_env, s)),
                 csq,
                 serial_downlink,
                 tripwire,
