@@ -107,7 +107,7 @@ pub async fn state_machine(
             Some(State::PollAnt)
         },
 
-        // TODO: how do we know we're done?
+        // TODO: how do we know we're done? do we continue polling until we get the rover stationary?
         State::PollAnt => {
             let env = env.borrow();
             let csq = csq.borrow();
