@@ -7,7 +7,7 @@ use crate::{
 };
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PackedStruct)]
-#[packed_struct(bit_numbering = "msb0", size_bytes = "8", endian = "msb")]
+#[packed_struct(bit_numbering = "msb0", size_bytes = "6", endian = "msb")]
 pub struct Ack {
     #[packed_field(size_bytes = "4")]
     pub timestamp: MissionEpoch,

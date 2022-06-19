@@ -38,9 +38,9 @@ use antrelay::{
             RequestMeta,
             Server,
         },
+        CRCMessage,
         CRCWrap,
         Header,
-        Message,
         OpaqueBytes,
     },
     net::{
@@ -132,17 +132,17 @@ async fn send_serial(path: String) -> eyre::Result<impl Stream<Item = eyre::Resu
 
                 let wrapped_payload = CRCWrap::<Vec<u8>>::new(b"test".to_vec());
 
-                let message = Message {
+                let message = CRCMessage {
                     header:  Header {
                         magic:       Default::default(),
                         destination: Destination::CentralStation,
                         timestamp:   MissionEpoch::now(),
                         seq:         seq.fetch_add(1, Ordering::Acquire),
                         ty:          RequestMeta {
-                            disposition:         Disposition::Request,
+                            disposition:         Disposition::Command,
                             request_was_invalid: false,
                             server:              Server::Rover,
-                            conversation_type:   Conversation::VoltageSupplied,
+                            conversation_type:   Conversation::PowerSupplied,
                         },
                     },
                     payload: wrapped_payload,
@@ -185,10 +185,10 @@ async fn log_all(
         })
         .pipe(stream_unwrap!("decompressing message"))
         .map(|decompressed| {
-            <Message<OpaqueBytes> as PackedStructSlice>::unpack_from_slice(&decompressed)
+            <CRCMessage<OpaqueBytes> as PackedStructSlice>::unpack_from_slice(&decompressed)
         })
         .pipe(stream_unwrap!("unpacking message"))
-        .map(|msg: Message<OpaqueBytes>| {
+        .map(|msg: CRCMessage<OpaqueBytes>| {
             if msg.header.ty.conversation_type == Conversation::Ping && msg.header.ty.server == Server::Frontend {
                 let payload = bincode::deserialize::<Vec<Event>>(&msg.payload.as_ref())?;
                 tracing::debug!(msg.header = %msg.header.display(), ?payload);

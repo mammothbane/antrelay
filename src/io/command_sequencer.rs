@@ -10,23 +10,23 @@ use smol::{
 use crate::message::{
     header::Disposition,
     payload::Ack,
+    CRCMessage,
     CRCWrap,
-    Message,
     OpaqueBytes,
     UniqueId,
 };
 
-type AckMap = DashMap<UniqueId, Sender<Message<Ack>>>;
+type AckMap = DashMap<UniqueId, Sender<CRCMessage<Ack>>>;
 
 pub struct CommandSequencer {
     pending_acks: Arc<AckMap>,
-    uplink_q:     Sender<Message<OpaqueBytes>>,
+    uplink_q:     Sender<CRCMessage<OpaqueBytes>>,
 }
 
 impl CommandSequencer {
     pub fn new(
-        downlink: impl Stream<Item = Message<OpaqueBytes>>,
-    ) -> (Self, impl Stream<Item = eyre::Result<()>>, impl Stream<Item = Message<OpaqueBytes>>)
+        downlink: impl Stream<Item = CRCMessage<OpaqueBytes>>,
+    ) -> (Self, impl Stream<Item = eyre::Result<()>>, impl Stream<Item = CRCMessage<OpaqueBytes>>)
     {
         let (uplink_tx, uplink_rx) = smol::channel::unbounded();
 
@@ -43,7 +43,7 @@ impl CommandSequencer {
     }
 
     #[tracing::instrument(skip(self, msg), level = "debug", err)]
-    pub async fn submit(&self, msg: Message<OpaqueBytes>) -> eyre::Result<Message<Ack>> {
+    pub async fn submit(&self, msg: CRCMessage<OpaqueBytes>) -> eyre::Result<CRCMessage<Ack>> {
         let (tx, rx) = smol::channel::bounded(1);
         let message_id = msg.header.unique_id();
 
@@ -62,10 +62,10 @@ impl CommandSequencer {
 
     #[tracing::instrument(fields(msg = ?msg), skip(acks), err, level = "debug")]
     fn handle_maybe_ack_packet(
-        msg: &Message<OpaqueBytes>,
-        acks: &DashMap<UniqueId, Sender<Message<Ack>>>,
+        msg: &CRCMessage<OpaqueBytes>,
+        acks: &DashMap<UniqueId, Sender<CRCMessage<Ack>>>,
     ) -> eyre::Result<()> {
-        if msg.header.ty.disposition != Disposition::Response {
+        if msg.header.ty.disposition != Disposition::Ack {
             return Ok(());
         }
 

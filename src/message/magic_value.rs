@@ -25,6 +25,7 @@ impl<const C: u8> PackedStruct for MagicValue<C> {
         Ok([C])
     }
 
+    #[tracing::instrument(level = "trace", err(Display))]
     fn unpack(src: &Self::ByteArray) -> PackingResult<Self> {
         if src[..1] == [C][..] {
             Ok(Self)

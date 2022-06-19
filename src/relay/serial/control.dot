@@ -6,7 +6,7 @@ digraph {
     "flight idle" -> "ping repeatedly" [label = " +5v supplied"]
     "ping repeatedly" -> "start BLE" [label = " garage open pending "]
     "start BLE" -> "idle" [label = " BLE started "]
-    "idle" -> "calibrate IMU" [xlabel = " rover stopped "]
+    "idle" -> "calibrate IMU" [xlabel = " rover stopping "]
     "calibrate IMU" -> "run ant" [xlabel = " calibration complete "]
 
     "run ant" -> "idle" [label = "rover moving"]

@@ -10,7 +10,6 @@ mod command_sequencer;
 use crate::futures::StreamExt as _;
 pub use command_sequencer::CommandSequencer;
 
-#[tracing::instrument(skip(r), level = "debug")]
 pub fn split_packets(
     r: impl AsyncBufRead + Unpin + 'static,
     sentinel: u8,
@@ -21,15 +20,13 @@ pub fn split_packets(
 
         Box::pin(async move {
             let result: eyre::Result<Vec<u8>> = try {
-                tracing::debug!("waiting for serial message");
                 let count = r.read_until(sentinel, &mut buf).await.wrap_err("splitting packet")?;
 
                 if count == 0 {
-                    tracing::debug!("eof");
                     return None;
                 }
 
-                tracing::debug!(count, content = ?&buf[..count], "read message");
+                tracing::trace!(count, content = ?&buf[..count], "read message");
 
                 buf[..count].to_vec()
             };
@@ -48,7 +45,7 @@ pub fn unpack_cobs_stream(
     s.map(move |data| unpack_cobs(data, sentinel))
 }
 
-#[tracing::instrument(level = "debug", fields(packet = ?packet), err(Display), ret)]
+#[tracing::instrument(level = "trace", fields(packet = ?packet), err(Display), ret)]
 #[cfg(feature = "serial_cobs")]
 pub fn unpack_cobs(mut packet: Vec<u8>, sentinel: u8) -> eyre::Result<Vec<u8>> {
     let len_without_sentinel = packet.len().max(1) - 1;
@@ -61,7 +58,7 @@ pub fn unpack_cobs(mut packet: Vec<u8>, sentinel: u8) -> eyre::Result<Vec<u8>> {
     Ok(packet)
 }
 
-#[tracing::instrument(level = "debug", fields(packet = ?packet), ret)]
+#[tracing::instrument(level = "trace", fields(packet = ?packet), ret)]
 #[cfg(feature = "serial_cobs")]
 pub fn pack_cobs(packet: Vec<u8>, sentinel: u8) -> Vec<u8> {
     let mut ret = cobs::encode_vec_with_sentinel(&packet, sentinel);
@@ -77,7 +74,6 @@ pub fn pack_cobs_stream(
     s.map(move |v| pack_cobs(v, sentinel))
 }
 
-#[tracing::instrument(skip_all, level = "debug")]
 pub fn write_packet_stream(
     s: impl Stream<Item = Vec<u8>>,
     w: impl AsyncWrite + Unpin + 'static,

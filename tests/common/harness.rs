@@ -19,7 +19,7 @@ use sluice::pipe::{
 use antrelay::{
     io::CommandSequencer,
     message::{
-        Message,
+        CRCMessage,
         OpaqueBytes,
     },
     standard_graph,
@@ -48,7 +48,7 @@ pub struct Harness {
     pub done:    Sender<!>,
     pub done_rx: Receiver<!>,
 
-    pub log: Sender<Message<OpaqueBytes>>,
+    pub log: Sender<CRCMessage<OpaqueBytes>>,
 
     pub packet_env:   Arc<PacketEnv>,
     pub serial_codec: Arc<SerialCodec>,

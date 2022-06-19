@@ -19,14 +19,17 @@ use crate::{
             realtime_status::Flags,
             RealtimeStatus,
         },
+        CRCMessage,
         CRCWrap,
         Header,
-        Message,
         OpaqueBytes,
     },
     net::DatagramSender,
     relay,
-    relay::wrap_relay_packets,
+    relay::{
+        control::State,
+        wrap_serial_packets_for_downlink,
+    },
     split,
     stream_unwrap,
     trip,
@@ -46,7 +49,7 @@ pub fn serial<'s, 'p, 'o, 'os>(
 ) -> (
     impl Future<Output = ()> + 'o,
     Arc<CommandSequencer>,
-    impl Stream<Item = Message<OpaqueBytes>> + 'os,
+    impl Stream<Item = CRCMessage<OpaqueBytes>> + 'os,
 )
 where
     'p: 'os,
@@ -59,8 +62,8 @@ where
         .pipe(trip!(tripwire))
         .pipe(split!());
 
-    let ser = codec.serialize.clone();
-    let de = codec.deserialize.clone();
+    let ser = codec.encode.clone();
+    let de = codec.decode.clone();
 
     let serial_downlink_packets = raw_serial_downlink
         .clone()
@@ -86,7 +89,7 @@ where
 
     let csq = Arc::new(csq);
 
-    let wrapped_serial_downlink = wrap_relay_packets(
+    let wrapped_serial_downlink = wrap_serial_packets_for_downlink(
         packet_env,
         raw_serial_downlink,
         smol::stream::repeat(RealtimeStatus {
@@ -95,7 +98,13 @@ where
             flags:        Flags::None,
         }),
     )
-    .map(|msg| msg.payload_into::<CRCWrap<OpaqueBytes>>())
+    .map(|msg| {
+        let result = msg.payload_into::<CRCWrap<OpaqueBytes>>();
+
+        tracing::trace!(from = %msg, to = ?result, "convert serial message");
+
+        result
+    })
     .pipe(stream_unwrap!("converting"));
 
     (drive_serial, csq, wrapped_serial_downlink)
@@ -105,30 +114,36 @@ pub async fn run<Socket>(
     (link_codec, packet_env): (impl Borrow<GroundLinkCodec>, impl Borrow<PacketEnv> + Send),
     uplink: impl Stream<Item = Vec<u8>> + Unpin + Send,
     downlink_sockets: impl IntoIterator<Item = impl Stream<Item = Socket> + Unpin>,
-    trace_event: impl Stream<Item = Message<OpaqueBytes>> + Unpin + Send,
+    trace_event: impl Stream<Item = CRCMessage<OpaqueBytes>> + Unpin + Send,
     csq: Arc<CommandSequencer>,
-    wrapped_serial_downlink: impl Stream<Item = Message<OpaqueBytes>> + Unpin + Send,
+    wrapped_serial_downlink: impl Stream<Item = CRCMessage<OpaqueBytes>> + Unpin + Send,
     tripwire: Receiver<!>,
 ) where
     Socket: DatagramSender + Send + 'static,
     Socket::Error: Error,
 {
     let link_codec = link_codec.borrow();
+    let packet_env = packet_env.borrow();
 
     let (raw_uplink, uplink_pump) =
         uplink.pipe(trip!(tripwire)).pipe(|s| splittable_stream(s, 1024));
 
-    let ser = link_codec.serialize.clone();
-    let de = link_codec.deserialize.clone();
+    let ser = link_codec.encode.clone();
+    let de = link_codec.decode.clone();
 
     let uplink = raw_uplink.clone().map(&*de).pipe(stream_unwrap!("unpacking uplink packet"));
 
-    let pump_uplink_to_serial =
-        relay::relay_uplink_to_serial(uplink, csq.clone(), relay::SERIAL_REQUEST_BACKOFF.clone())
-            .for_each(|_| {});
+    let pump_uplink_to_serial = relay::relay_uplink_to_serial(
+        packet_env,
+        State::FlightIdle,
+        uplink,
+        csq.clone(),
+        relay::SERIAL_REQUEST_BACKOFF.clone(),
+    );
 
     let wrapped_uplink = raw_uplink.map(move |uplink_pkt| {
-        Message::new(Header::downlink(packet_env.borrow(), Conversation::Relay), uplink_pkt)
+        tracing::debug!("wrapping uplink packet");
+        CRCMessage::new(Header::downlink(packet_env, Conversation::Relay), uplink_pkt)
     });
 
     let downlink_packets = futures::stream_select![

@@ -38,9 +38,9 @@ use antrelay::{
             Server,
         },
         payload::Ack,
+        CRCMessage,
         CRCWrap,
         Header,
-        Message,
         OpaqueBytes,
         StandardCRC,
     },
@@ -57,7 +57,7 @@ antrelay::atomic_seq!(pub DummySeq);
 antrelay::atomic_seq!(pub DummyClock, AtomicU32, u32);
 
 pub fn trace_init() {
-    let level_filter = EnvFilter::from_str("debug").unwrap();
+    let level_filter = EnvFilter::from_str("trace,async_io=warn,polling=warn").unwrap();
 
     tracing_subscriber::fmt()
         .with_writer(std::io::stdout)
@@ -78,26 +78,26 @@ pub async fn serial_ack_backend(
 
     tracing::info!("started up");
 
-    let ser = codec.serialize.clone();
-    let de = codec.deserialize.clone();
+    let ser = codec.encode.clone();
+    let de = codec.decode.clone();
 
     io::split_packets(smol::io::BufReader::new(r), 0, 1024)
         .pipe(trip!(done))
         .map(move |x| x.and_then(|x| de(x)))
-        .map(|x| -> eyre::Result<Message<OpaqueBytes>> {
+        .map(|x| -> eyre::Result<CRCMessage<OpaqueBytes>> {
             try {
                 let msg = x?;
 
-                tracing::debug!("received packet");
+                tracing::trace!(%msg, "received packet");
 
-                let resp = Message::<_, StandardCRC>::new(
+                let resp = CRCMessage::<_, StandardCRC>::new(
                     Header {
                         magic:       Default::default(),
                         destination: Destination::Frontend,
                         timestamp:   MissionEpoch::now(),
                         seq:         0,
                         ty:          RequestMeta {
-                            disposition:         Disposition::Response,
+                            disposition:         Disposition::Ack,
                             request_was_invalid: false,
                             server:              Server::CentralStation,
                             conversation_type:   msg.header.ty.conversation_type,
@@ -119,7 +119,7 @@ pub async fn serial_ack_backend(
                 let result: eyre::Result<()> = try {
                     let resp = resp?;
                     w.write_all(&resp)
-                        .instrument(tracing::debug_span!("responding to packet", ?resp))
+                        .instrument(tracing::trace_span!("responding to packet", ?resp))
                         .await?;
                 };
 

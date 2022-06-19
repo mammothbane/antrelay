@@ -3,30 +3,23 @@
 #![feature(explicit_generic_args_with_impl_trait)]
 
 use futures::StreamExt;
+use tap::Pipe;
 
-use antrelay::{
-    io::unpack_cobs,
-    message::{
-        header::{
-            Conversation,
-            Destination,
-            Disposition,
-            RequestMeta,
-            Server,
-        },
-        payload::{
-            Ack,
-            RealtimeStatus,
-        },
-        Header,
-        HeaderPacket,
-        Message,
-        OpaqueBytes,
+use antrelay::message::{
+    header::{
+        Conversation,
+        Destination,
+        Disposition,
+        RequestMeta,
+        Server,
     },
-    util::{
-        self,
-        pack_message,
+    payload::{
+        Ack,
+        RelayPacket,
     },
+    CRCMessage,
+    CRCWrap,
+    Header,
 };
 
 use common::Harness;
@@ -41,8 +34,6 @@ async fn test_5v_sup() -> eyre::Result<()> {
 
     let mut harness = Harness::new();
 
-    harness.uplink.close();
-
     let pumps = harness.pumps.take().unwrap();
     let pump_task = smol::spawn(pumps);
 
@@ -53,12 +44,45 @@ async fn test_5v_sup() -> eyre::Result<()> {
         harness.done_rx.clone(),
     ));
 
-    let orig_msg = Message::new(
-        Header::cs_command(&harness.packet_env, Conversation::VoltageSupplied),
-        Vec::<u8>::new(),
+    let orig_msg = CRCMessage::new(
+        Header::fe_command(&harness.packet_env, Conversation::PowerSupplied),
+        vec![],
     );
 
-    let ack_msg: Message<Ack> = util::timeout(100, harness.csq.submit(orig_msg.clone())).await??;
+    (harness.link_codec.encode)(orig_msg.clone())?
+        .pipe(|pkt| harness.uplink.broadcast(pkt))
+        .await?;
+
+    let pkt = (&mut harness.downlink)
+        .map(|x| (harness.link_codec.decode)(x))
+        .filter(|msg| {
+            let result = match msg {
+                Err(_) => true,
+                Ok(msg) => msg.header.ty.server == Server::CentralStation,
+            };
+
+            smol::future::ready(result)
+        })
+        .next()
+        .await
+        .ok_or(eyre::eyre!("awaiting downlink result"))??;
+
+    tracing::debug!(%pkt, "got downlinked packet");
+
+    let msg = pkt.payload_into::<CRCWrap<RelayPacket>>()?;
+    tracing::debug!("converted packet");
+
+    assert_eq!(msg.header.ty.conversation_type, Conversation::Relay);
+    assert_eq!(msg.header.destination, Destination::Ground);
+    assert_eq!(msg.header.ty.server, Server::CentralStation);
+
+    let inner = msg.payload.take();
+
+    let serial_msg = (harness.serial_codec.decode)(inner.payload)?;
+    tracing::debug!("deserialized wrapped serial packet");
+
+    let ack_msg = serial_msg.payload_into::<CRCWrap<Ack>>()?;
+    tracing::debug!("into ack");
 
     let payload = &ack_msg.payload;
     let header = &ack_msg.header;
@@ -66,42 +90,18 @@ async fn test_5v_sup() -> eyre::Result<()> {
     let ack: &Ack = payload.as_ref();
 
     assert_eq!(ack.checksum, orig_msg.payload.checksum()?[0]);
-    assert_eq!(ack.seq, orig_msg.header.seq);
-    assert_eq!(ack.timestamp, orig_msg.header.timestamp);
 
     assert_eq!(header.destination, Destination::Frontend);
     assert_eq!(header.ty, RequestMeta {
-        disposition:         Disposition::Response,
+        disposition:         Disposition::Ack,
         request_was_invalid: false,
         server:              Server::CentralStation,
-        conversation_type:   Conversation::VoltageSupplied,
+        conversation_type:   Conversation::Ping,
     });
 
-    let pkt = harness.downlink.next().await.ok_or(eyre::eyre!("awaiting downlink result"))?;
-
-    let msg = (harness.link_codec.deserialize)(pkt)?
-        .payload_into::<HeaderPacket<RealtimeStatus, OpaqueBytes>>()?;
-
-    assert_eq!(msg.header.ty.conversation_type, Conversation::Relay);
-    assert_eq!(msg.header.destination, Destination::Ground);
-    assert_eq!(msg.header.ty.server, Server::Frontend);
-
-    let inner = msg.payload;
-
-    let packed_ack = {
-        let mut result = pack_message(ack_msg.clone())?;
-        result.push(0);
-        result
-    };
-    assert_eq!(unpack_cobs(inner.payload.to_vec(), 0)?, &packed_ack[..]);
-
     harness.done.close();
-
-    let down_next = util::timeout(100, harness.downlink.next()).await?;
-    assert_eq!(down_next, None);
-
-    let (_, ser) = util::timeout(100, smol::future::zip(pump_task, serial_task)).await?;
-    ser?;
+    assert_eq!(harness.downlink.next().await, None);
+    smol::future::zip(pump_task, serial_task).await.1?;
 
     Ok(())
 }

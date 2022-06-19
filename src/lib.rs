@@ -8,6 +8,7 @@
 #![feature(explicit_generic_args_with_impl_trait)]
 #![feature(iter_intersperse)]
 #![feature(const_convert)]
+#![feature(backtrace)]
 #![deny(unsafe_code)]
 
 mod mission_epoch;

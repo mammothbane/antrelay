@@ -1,5 +1,7 @@
+use backoff::backoff::Backoff;
 use chrono::Utc;
 use std::{
+    borrow::Borrow,
     future::Future,
     sync::Arc,
     time::Duration,
@@ -16,7 +18,7 @@ use crate::{
         pack_cobs,
         unpack_cobs,
     },
-    message::Message,
+    message::CRCMessage,
     trace_catch,
 };
 
@@ -27,7 +29,13 @@ mod reader;
 mod seq;
 mod state;
 
-use crate::message::OpaqueBytes;
+use crate::{
+    io::CommandSequencer,
+    message::{
+        payload::Ack,
+        OpaqueBytes,
+    },
+};
 pub use clock::Clock;
 pub use reader::Reader;
 pub use seq::{
@@ -37,35 +45,35 @@ pub use seq::{
 
 crate::atomic_seq!(pub U8Sequence);
 
-type SerializeFunction<E> = dyn Fn(Message<OpaqueBytes>) -> Result<Vec<u8>, E> + Send + Sync;
-type DeserializeFunction<E> = dyn Fn(Vec<u8>) -> Result<Message<OpaqueBytes>, E> + Send + Sync;
+type SerializeFunction<E> = dyn Fn(CRCMessage<OpaqueBytes>) -> Result<Vec<u8>, E> + Send + Sync;
+type DeserializeFunction<E> = dyn Fn(Vec<u8>) -> Result<CRCMessage<OpaqueBytes>, E> + Send + Sync;
 
 pub struct SerialCodec<E = eyre::Report> {
-    pub serialize:   Arc<SerializeFunction<E>>,
-    pub deserialize: Arc<DeserializeFunction<E>>,
-    pub sentinel:    u8,
+    pub encode:   Arc<SerializeFunction<E>>,
+    pub decode:   Arc<DeserializeFunction<E>>,
+    pub sentinel: u8,
 }
 
 impl<E> Clone for SerialCodec<E> {
     fn clone(&self) -> Self {
         Self {
-            serialize:   self.serialize.clone(),
-            deserialize: self.deserialize.clone(),
-            sentinel:    self.sentinel,
+            encode:   self.encode.clone(),
+            decode:   self.decode.clone(),
+            sentinel: self.sentinel,
         }
     }
 }
 
 pub struct GroundLinkCodec<E = eyre::Report> {
-    pub serialize:   Arc<SerializeFunction<E>>,
-    pub deserialize: Arc<DeserializeFunction<E>>,
+    pub encode: Arc<SerializeFunction<E>>,
+    pub decode: Arc<DeserializeFunction<E>>,
 }
 
 impl<E> Clone for GroundLinkCodec<E> {
     fn clone(&self) -> Self {
         Self {
-            serialize:   self.serialize.clone(),
-            deserialize: self.deserialize.clone(),
+            encode: self.encode.clone(),
+            decode: self.decode.clone(),
         }
     }
 }
@@ -89,21 +97,21 @@ pub const DEFAULT_COBS_SENTINEL: u8 = 0u8;
 
 lazy_static::lazy_static! {
     pub static ref DEFAULT_GROUND_CODEC: GroundLinkCodec = GroundLinkCodec {
-        serialize:   Arc::new(crate::compose!(
+        encode:   Arc::new(crate::compose!(
             and_then,
             pack_message,
             brotli_compress
         )),
-        deserialize: Arc::new(crate::compose!(and_then, brotli_decompress, unpack_message)),
+        decode: Arc::new(crate::compose!(and_then, brotli_decompress, unpack_message)),
     };
 
     pub static ref DEFAULT_SERIAL_CODEC: SerialCodec = SerialCodec {
-        serialize:   Arc::new(crate::compose!(
+        encode:   Arc::new(crate::compose!(
             map,
             pack_message,
             |v| pack_cobs(v, DEFAULT_COBS_SENTINEL)
         )),
-        deserialize: Arc::new(crate::compose!(
+        decode: Arc::new(crate::compose!(
             and_then,
             |v| unpack_cobs(v, DEFAULT_COBS_SENTINEL),
             unpack_message
@@ -170,7 +178,6 @@ pub async fn either<T, U>(
         .await
 }
 
-#[tracing::instrument(skip(s), level = "trace")]
 pub fn splittable_stream<'s, 'o, S>(
     s: S,
     buffer: usize,
@@ -199,12 +206,12 @@ where
 }
 
 #[inline]
-#[tracing::instrument(err(Display), level = "debug")]
-pub fn unpack_message<T>(v: Vec<u8>) -> eyre::Result<Message<T>>
+#[tracing::instrument(err(Display), level = "trace")]
+pub fn unpack_message<T>(v: Vec<u8>) -> eyre::Result<CRCMessage<T>>
 where
     T: PackedStructSlice,
 {
-    <Message<T> as PackedStructSlice>::unpack_from_slice(&v).map_err(eyre::Report::from)
+    <CRCMessage<T> as PackedStructSlice>::unpack_from_slice(&v).map_err(eyre::Report::from)
 }
 
 #[inline]
@@ -236,9 +243,39 @@ pub fn brotli_compress(message: Vec<u8>) -> eyre::Result<Vec<u8>> {
     Ok(compressed_bytes)
 }
 
+#[tracing::instrument(skip_all, level = "trace")]
 pub fn brotli_decompress(v: Vec<u8>) -> eyre::Result<Vec<u8>> {
     let mut out = vec![];
     brotli::BrotliDecompress(&mut &v[..], &mut out).map_err(eyre::Report::from)?;
 
     Ok(out)
+}
+
+#[tracing::instrument(level = "debug", skip(backoff, csq), err(Display), ret)]
+#[inline]
+pub async fn send(
+    desc: &str,
+    msg: CRCMessage<OpaqueBytes>,
+    backoff: impl Backoff + Clone,
+    csq: impl Borrow<CommandSequencer>,
+) -> eyre::Result<CRCMessage<Ack>> {
+    let csq = csq.borrow();
+
+    let result = backoff::future::retry_notify(backoff, move || {
+        let msg = msg.clone();
+
+        async move {
+            let result = csq.submit(msg).await.map_err(backoff::Error::transient)?;
+
+            if result.header.ty.request_was_invalid {
+                return Err(backoff::Error::transient(eyre::eyre!("cs reports '{}' invalid", desc)));
+            }
+
+            Ok(result)
+        }
+    }, |e, dur| {
+        tracing::warn!(error = %e, backoff_dur = ?dur, "submitting '{}' to central station", desc);
+    }).await?;
+
+    Ok(result)
 }

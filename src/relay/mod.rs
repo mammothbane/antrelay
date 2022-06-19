@@ -12,21 +12,17 @@ use crate::{
         header::{
             Conversation,
             Destination,
-            RequestMeta,
-            Server,
         },
         payload::Ack,
+        CRCMessage,
         CRCWrap,
         Header,
-        Message,
         OpaqueBytes,
     },
     stream_unwrap,
     util::PacketEnv,
-    MissionEpoch,
 };
 
-mod control;
 mod downlink;
 mod serial;
 
@@ -45,8 +41,8 @@ lazy_static::lazy_static! {
 #[tracing::instrument(skip_all)]
 pub fn ack_uplink_packets<'e, 's, 'o>(
     env: impl Borrow<PacketEnv> + 'e,
-    packets: impl Stream<Item = Message<OpaqueBytes>> + 's,
-) -> impl Stream<Item = Message<Ack>> + 'o
+    packets: impl Stream<Item = CRCMessage<OpaqueBytes>> + 's,
+) -> impl Stream<Item = CRCMessage<Ack>> + 'o
 where
     'e: 'o,
     's: 'o,
@@ -54,7 +50,7 @@ where
     packets
         .filter(|pkt| pkt.header.destination == Destination::Frontend)
         .map(move |pkt| {
-            Ok(Message {
+            Ok(CRCMessage {
                 header: Header::downlink(env.borrow(), pkt.header.ty.conversation_type),
 
                 payload: CRCWrap::new(Ack {
@@ -62,7 +58,7 @@ where
                     seq:       pkt.header.seq,
                     checksum:  pkt.payload.checksum()?[0],
                 }),
-            }) as eyre::Result<Message<Ack>>
+            }) as eyre::Result<CRCMessage<Ack>>
         })
         .pipe(stream_unwrap!("checksumming message"))
 }
@@ -72,7 +68,7 @@ where
 pub fn dummy_log_downlink<'e, 's, 'o>(
     env: impl Borrow<PacketEnv> + 'e,
     s: impl Stream<Item = crate::tracing::Event> + 's,
-) -> impl Stream<Item = Message<OpaqueBytes>> + 'o
+) -> impl Stream<Item = CRCMessage<OpaqueBytes>> + 'o
 where
     'e: 'o,
     's: 'o,
@@ -80,10 +76,10 @@ where
     s.pipe(|s| futures::stream::StreamExt::chunks(s, 2))
         .map(|evts| bincode::serialize(&evts))
         .pipe(stream_unwrap!("serializing log payload"))
-        .map(move |payload| -> Message<OpaqueBytes> {
+        .map(move |payload| -> CRCMessage<OpaqueBytes> {
             let wrapped_payload = CRCWrap::<Vec<u8>>::new(payload);
 
-            Message {
+            CRCMessage {
                 header:  Header::downlink(env.borrow(), Conversation::Ping),
                 payload: wrapped_payload,
             }

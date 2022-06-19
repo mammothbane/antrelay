@@ -45,11 +45,27 @@ impl Header {
             destination: Destination::Ground,
 
             timestamp: env.clock.now(),
-
-            seq: env.seq.next(),
+            seq:       env.seq.next(),
 
             ty: RequestMeta {
-                disposition:         Disposition::Response,
+                disposition:         Disposition::Command,
+                request_was_invalid: false,
+                server:              Server::Frontend,
+                conversation_type:   kind,
+            },
+        }
+    }
+
+    pub fn fe_command(env: &PacketEnv, kind: Conversation) -> Self {
+        Header {
+            magic:       Default::default(),
+            destination: Destination::CentralStation,
+
+            timestamp: env.clock.now(),
+            seq:       env.seq.next(),
+
+            ty: RequestMeta {
+                disposition:         Disposition::Command,
                 request_was_invalid: false,
                 server:              Server::Frontend,
                 conversation_type:   kind,
@@ -63,13 +79,29 @@ impl Header {
             destination: Destination::CentralStation,
 
             timestamp: env.clock.now(),
-
-            seq: env.seq.next(),
+            seq:       env.seq.next(),
 
             ty: RequestMeta {
-                disposition:         Disposition::Response,
+                disposition:         Disposition::Command,
                 request_was_invalid: false,
-                server:              Server::Frontend,
+                server:              Server::CentralStation,
+                conversation_type:   kind,
+            },
+        }
+    }
+
+    pub fn ant_command(env: &PacketEnv, kind: Conversation) -> Self {
+        Header {
+            magic:       Default::default(),
+            destination: Destination::Ant,
+
+            timestamp: env.clock.now(),
+            seq:       env.seq.next(),
+
+            ty: RequestMeta {
+                disposition:         Disposition::Command,
+                request_was_invalid: false,
+                server:              Server::Ant,
                 conversation_type:   kind,
             },
         }
@@ -90,7 +122,7 @@ impl Header {
         let ty_str = format!(
             "{:?}{}{}",
             self.ty.conversation_type,
-            (self.ty.disposition == Disposition::Response).then(|| "[Ack]").unwrap_or(""),
+            (self.ty.disposition == Disposition::Ack).then(|| "[Ack]").unwrap_or(""),
             self.ty.request_was_invalid.then(|| "[Invalid]").unwrap_or(""),
         );
 
@@ -134,7 +166,7 @@ pub struct RequestMeta {
 
 impl RequestMeta {
     pub const PONG: Self = Self {
-        disposition:         Disposition::Response,
+        disposition:         Disposition::Ack,
         request_was_invalid: false,
         server:              Server::Frontend,
         conversation_type:   Conversation::Ping,
@@ -145,8 +177,8 @@ impl RequestMeta {
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PrimitiveEnum_u8)]
 #[repr(u8)]
 pub enum Disposition {
-    Request,
-    Response,
+    Command = 0x0,
+    Ack     = 0x1,
 }
 
 /// The target of this *type* of message. A discriminant.
@@ -169,9 +201,10 @@ pub enum Conversation {
     Calibrate         = 0x03,
     RoverWillTurn     = 0x04,
     RoverHalting      = 0x05,
-    VoltageSupplied   = 0x06,
+    PowerSupplied     = 0x06,
     Relay             = 0x07,
 
+    SerialRelay       = 0x0a,
     GarageOpenPending = 0x0b,
 }
 
@@ -231,7 +264,7 @@ mod test {
     }
 
     fn direction_strategy() -> impl Strategy<Value = Disposition> {
-        prop_oneof![Just(Disposition::Response), Just(Disposition::Request),]
+        prop_oneof![Just(Disposition::Ack), Just(Disposition::Command),]
     }
 
     fn dest_strategy() -> impl Strategy<Value = Destination> {
@@ -254,7 +287,7 @@ mod test {
             Just(Conversation::Calibrate),
             Just(Conversation::RoverWillTurn),
             Just(Conversation::RoverHalting),
-            Just(Conversation::VoltageSupplied),
+            Just(Conversation::PowerSupplied),
         ]
     }
 }

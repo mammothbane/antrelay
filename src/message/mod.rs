@@ -15,9 +15,7 @@ pub type OpaqueBytes = Vec<u8>;
 crate::impl_checksum!(pub StandardCRC, u8, crc::CRC_8_SMBUS);
 
 pub type CRCWrap<T, CRC = StandardCRC> = crc_wrap::CRCWrap<T, CRC>;
-pub type Message<T, CRC = StandardCRC> = HeaderPacket<Header, CRCWrap<T, CRC>>;
-
-pub type RawMessage<T> = HeaderPacket<Header, T>;
+pub type CRCMessage<T, CRC = StandardCRC> = HeaderPacket<Header, CRCWrap<T, CRC>>;
 
 #[derive(
     Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord, serde::Deserialize, serde::Serialize,

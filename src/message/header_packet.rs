@@ -1,9 +1,12 @@
-use crate::message::CRCWrap;
+use std::backtrace::Backtrace;
+
 use packed_struct::{
     prelude::*,
     PackedStructInfo,
     PackingResult,
 };
+
+use crate::message::CRCWrap;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, derive_more::Display)]
 #[display(fmt = "{}/{:?}", header, payload)]
@@ -24,6 +27,7 @@ where
         bits / 8
     }
 
+    #[tracing::instrument(level = "trace", skip_all)]
     pub fn payload_into<T>(&self) -> PackingResult<HeaderPacket<Header, T>>
     where
         Payload: PackedStructSlice,
@@ -31,7 +35,10 @@ where
         T: PackedStructSlice,
     {
         let packed_payload = self.payload.pack_to_vec()?;
+        tracing::trace!(?packed_payload, bt = %Backtrace::capture(), "pack ok");
+
         let new_payload = T::unpack_from_slice(&packed_payload)?;
+        tracing::trace!("unpack ok");
 
         Ok(HeaderPacket {
             header:  self.header.clone(),
@@ -70,7 +77,7 @@ where
         Ok(())
     }
 
-    #[tracing::instrument(skip(src), fields(src.len = src.len()), err, level = "trace")]
+    #[tracing::instrument(err(Display), level = "trace")]
     fn unpack_from_slice(src: &[u8]) -> PackingResult<Self> {
         let header_len = Self::header_bytes();
         if header_len > src.len() {

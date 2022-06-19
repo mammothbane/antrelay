@@ -12,14 +12,8 @@ use packed_struct::{
 
 use crate::message::{
     checksum,
-    payload::realtime_status::RealtimeStatus,
     Checksum,
-    HeaderPacket,
-    Message,
-    OpaqueBytes,
 };
-
-pub type Relay = HeaderPacket<RealtimeStatus, Vec<Message<OpaqueBytes>>>;
 
 #[derive(Debug, Clone, PartialEq, derive_more::Display)]
 #[display(fmt = "{:?}", val)]

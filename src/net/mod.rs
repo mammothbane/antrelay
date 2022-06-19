@@ -77,7 +77,6 @@ where
     })
 }
 
-#[tracing::instrument(skip_all, level = "debug")]
 pub fn receive_packets<Socket>(
     sockets: impl Stream<Item = Socket> + Unpin,
 ) -> impl Stream<Item = Vec<u8>> + Unpin
@@ -102,7 +101,6 @@ where
         .pipe(stream_unwrap!(parent: &span, "reading from socket"))
 }
 
-#[tracing::instrument(skip_all, level = "debug")]
 pub fn send_packets<Socket>(
     sockets: impl Stream<Item = Socket> + Unpin,
     packets: impl Stream<Item = Vec<u8>>,
