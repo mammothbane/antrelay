@@ -14,12 +14,19 @@ use smol::stream::{
 };
 
 use crate::{
-    io::{
-        pack_cobs,
-        unpack_cobs,
+    io::CommandSequencer,
+    message::{
+        payload::Ack,
+        CRCMessage,
+        OpaqueBytes,
     },
-    message::CRCMessage,
     trace_catch,
+};
+
+#[cfg(feature = "serial_cobs")]
+use crate::io::{
+    pack_cobs,
+    unpack_cobs,
 };
 
 mod clock;
@@ -29,13 +36,6 @@ mod reader;
 mod seq;
 mod state;
 
-use crate::{
-    io::CommandSequencer,
-    message::{
-        payload::Ack,
-        OpaqueBytes,
-    },
-};
 pub use clock::Clock;
 pub use reader::Reader;
 pub use seq::{
@@ -100,11 +100,18 @@ lazy_static::lazy_static! {
         encode:   Arc::new(crate::compose!(
             and_then,
             pack_message,
-            brotli_compress
+            brotli_compress,
         )),
-        decode: Arc::new(crate::compose!(and_then, brotli_decompress, unpack_message)),
+        decode: Arc::new(crate::compose!(
+            and_then,
+            brotli_decompress,
+            unpack_message,
+        )),
     };
+}
 
+#[cfg(feature = "serial_cobs")]
+lazy_static::lazy_static! {
     pub static ref DEFAULT_SERIAL_CODEC: SerialCodec = SerialCodec {
         encode:   Arc::new(crate::compose!(
             map,
@@ -117,6 +124,15 @@ lazy_static::lazy_static! {
             unpack_message
         )),
         sentinel:    DEFAULT_COBS_SENTINEL,
+    };
+}
+
+#[cfg(not(feature = "serial_cobs"))]
+lazy_static::lazy_static! {
+    pub static ref DEFAULT_SERIAL_CODEC: SerialCodec = SerialCodec {
+        encode:   Arc::new(pack_message),
+        decode: Arc::new(unpack_message),
+        sentinel:    crate::message::header::Magic::VALUE,
     };
 }
 

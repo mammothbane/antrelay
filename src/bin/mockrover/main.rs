@@ -1,7 +1,6 @@
 #![feature(never_type)]
 #![feature(io_safety)]
 #![feature(explicit_generic_args_with_impl_trait)]
-#![cfg(feature = "serial_cobs")]
 
 use std::{
     sync::{
@@ -53,6 +52,7 @@ use antrelay::{
     signals,
     stream_unwrap,
     tracing::Event,
+    util::DEFAULT_SERIAL_CODEC,
     MissionEpoch,
 };
 
@@ -148,13 +148,7 @@ async fn send_serial(path: String) -> eyre::Result<impl Stream<Item = eyre::Resu
                     payload: wrapped_payload,
                 };
 
-                let message = message.pack_to_vec()?;
-
-                let encoded = {
-                    let mut ret = cobs::encode_vec(&message);
-                    ret.push(0);
-                    ret
-                };
+                let encoded = (DEFAULT_SERIAL_CODEC.encode)(message)?;
 
                 serial_stream.write_all(&encoded).await?;
                 tracing::trace!("wrote to serial port");
