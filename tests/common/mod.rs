@@ -45,7 +45,10 @@ use antrelay::{
         StandardCRC,
     },
     trip,
-    util::SerialCodec,
+    util::{
+        SerialCodec,
+        DEFAULT_SERIAL_CODEC,
+    },
     MissionEpoch,
 };
 
@@ -81,7 +84,7 @@ pub async fn serial_ack_backend(
     let ser = codec.encode.clone();
     let de = codec.decode.clone();
 
-    io::split_packets(smol::io::BufReader::new(r), 0, 1024)
+    io::split_packets(smol::io::BufReader::new(r), DEFAULT_SERIAL_CODEC.sentinel.clone(), 1024)
         .pipe(trip!(done))
         .map(move |x| x.and_then(|x| de(x)))
         .map(|x| -> eyre::Result<CRCMessage<OpaqueBytes>> {

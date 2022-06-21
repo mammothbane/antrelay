@@ -10,28 +10,40 @@ mod command_sequencer;
 use crate::futures::StreamExt as _;
 pub use command_sequencer::CommandSequencer;
 
-pub fn split_packets(
-    r: impl AsyncBufRead + Unpin + 'static,
-    sentinel: u8,
-    max_packet_hint: usize,
-) -> impl Stream<Item = eyre::Result<Vec<u8>>> {
-    smol::stream::unfold((Vec::with_capacity(max_packet_hint), r), move |(mut buf, mut r)| {
-        buf.truncate(0);
+pub fn split_packets<'r, 'o>(
+    r: impl AsyncBufRead + Unpin + 'r,
+    sentinel: Vec<u8>,
+    _max_packet_hint: usize,
+) -> impl Stream<Item = eyre::Result<Vec<u8>>> + 'o
+where
+    'r: 'o,
+{
+    let buf = sentinel.clone();
 
+    smol::stream::unfold((buf, r, sentinel), move |(mut buf, mut r, sentinel)| {
         Box::pin(async move {
             let result: eyre::Result<Vec<u8>> = try {
-                let count = r.read_until(sentinel, &mut buf).await.wrap_err("splitting packet")?;
+                loop {
+                    let count = r
+                        .read_until(*sentinel.last().expect("sentinel empty"), &mut buf)
+                        .await
+                        .wrap_err("splitting packet")?;
 
-                if count == 0 {
-                    return None;
+                    if count == 0 {
+                        return None;
+                    }
+
+                    tracing::trace!(count, content = ?&buf[..count], "read message");
+
+                    if buf.ends_with(&sentinel) {
+                        break;
+                    }
                 }
 
-                tracing::trace!(count, content = ?&buf[..count], "read message");
-
-                buf[..count].to_vec()
+                buf[..(buf.len() - sentinel.len())].to_vec()
             };
 
-            Some((result, (buf, r)))
+            Some((result, (buf, r, sentinel)))
         })
     })
     .fuse()

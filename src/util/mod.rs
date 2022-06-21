@@ -49,7 +49,7 @@ type DeserializeFunction<E> = dyn Fn(Vec<u8>) -> Result<CRCMessage<OpaqueBytes>,
 pub struct SerialCodec<E = eyre::Report> {
     pub encode:   Arc<SerializeFunction<E>>,
     pub decode:   Arc<DeserializeFunction<E>>,
-    pub sentinel: u8,
+    pub sentinel: Vec<u8>,
 }
 
 impl<E> Clone for SerialCodec<E> {
@@ -57,7 +57,7 @@ impl<E> Clone for SerialCodec<E> {
         Self {
             encode:   self.encode.clone(),
             decode:   self.decode.clone(),
-            sentinel: self.sentinel,
+            sentinel: self.sentinel.clone(),
         }
     }
 }
@@ -159,7 +159,7 @@ lazy_static::lazy_static! {
             |v| unpack_cobs(v, DEFAULT_COBS_SENTINEL),
             unpack_message
         )),
-        sentinel:    DEFAULT_COBS_SENTINEL,
+        sentinel:    vec![DEFAULT_COBS_SENTINEL],
     };
 }
 
@@ -168,7 +168,7 @@ lazy_static::lazy_static! {
     pub static ref DEFAULT_SERIAL_CODEC: SerialCodec = SerialCodec {
         encode:     Arc::new(pack_message),
         decode:     Arc::new(unpack_message),
-        sentinel:   crate::message::header::Magic::VALUE,
+        sentinel:   vec![crate::message::header::Magic::VALUE, crate::message::header::Destination::Frontend as u8],
     };
 }
 

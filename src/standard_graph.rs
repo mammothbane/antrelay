@@ -57,7 +57,7 @@ where
     let codec = codec.borrow();
 
     let (raw_serial_downlink, pump_serial_reader) = serial_downlink_io
-        .pipe(|r| io::split_packets(smol::io::BufReader::new(r), 0, 8192))
+        .pipe(|r| io::split_packets(smol::io::BufReader::new(r), codec.sentinel.clone(), 8192))
         .pipe(stream_unwrap!("splitting serial downlink packets"))
         .pipe(trip!(tripwire))
         .pipe(split!());

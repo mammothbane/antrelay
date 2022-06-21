@@ -54,9 +54,13 @@ async fn test_5v_sup() -> eyre::Result<()> {
         .pipe(|pkt| harness.uplink.broadcast(pkt))
         .await?;
 
+    tracing::debug!("sent uplink command");
+
     let pkt = (&mut harness.downlink)
         .map(|x| (harness.link_codecs.downlink.decode)(x))
         .filter(|msg| {
+            return smol::future::ready(true);
+
             let result = match msg {
                 Err(_) => true,
                 Ok(msg) => msg.header.ty.server == Server::CentralStation,
