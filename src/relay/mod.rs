@@ -10,8 +10,9 @@ use tap::Pipe;
 use crate::{
     message::{
         header::{
-            Conversation,
             Destination,
+            Event,
+            RequestMeta,
         },
         payload::Ack,
         CRCMessage,
@@ -51,7 +52,7 @@ where
         .filter(|pkt| pkt.header.destination == Destination::Frontend)
         .map(move |pkt| {
             Ok(CRCMessage {
-                header: Header::downlink(env.borrow(), pkt.header.ty.conversation_type),
+                header: Header::downlink(env.borrow(), pkt.header.ty.event),
 
                 payload: CRCWrap::new(Ack {
                     timestamp: pkt.header.timestamp,
@@ -80,7 +81,10 @@ where
             let wrapped_payload = CRCWrap::<Vec<u8>>::new(payload);
 
             CRCMessage {
-                header:  Header::downlink(env.borrow(), Conversation::Ping),
+                header:  Header {
+                    ty: RequestMeta::PONG,
+                    ..Header::downlink(env.borrow(), Event::FE_PING)
+                },
                 payload: wrapped_payload,
             }
         })

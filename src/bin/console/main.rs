@@ -10,7 +10,8 @@ use structopt::StructOpt;
 use antrelay::{
     message::{
         header::{
-            Conversation,
+            Disposition,
+            Event,
             RequestMeta,
             Server,
         },
@@ -25,7 +26,7 @@ use antrelay::{
         DatagramOps,
         DatagramReceiver,
     },
-    tracing::Event,
+    tracing::Event as TEvent,
     util::{
         PacketEnv,
         DEFAULT_DOWNLINK_CODEC,
@@ -102,11 +103,11 @@ async fn _main() -> eyre::Result<()> {
             },
         };
 
-        let ty: Conversation = match command {
-            Command::PowerSupplied => Conversation::PowerSupplied,
-            Command::GarageOpenPending => Conversation::GarageOpenPending,
-            Command::RoverStopping => Conversation::RoverStopping,
-            Command::RoverMoving => Conversation::RoverMoving,
+        let ty: Event = match command {
+            Command::PowerSupplied => Event::FE_5V_SUP,
+            Command::GarageOpenPending => Event::FE_GARAGE_OPEN,
+            Command::RoverStopping => Event::FE_ROVER_STOP,
+            Command::RoverMoving => Event::FE_ROVER_MOVE,
         };
 
         let msg =
@@ -141,7 +142,7 @@ where
         match msg.header.ty {
             RequestMeta {
                 server: Server::CentralStation,
-                conversation_type: Conversation::Relay,
+                event: Event::CS_PING,
                 ..
             } => {
                 let inner = msg.payload_into::<CRCWrap<RelayPacket>>()?.payload.take();
@@ -161,7 +162,8 @@ where
 
             RequestMeta {
                 server: Server::Frontend,
-                conversation_type: Conversation::Relay,
+                event: Event::FE_PING,
+                disposition: Disposition::Command,
                 ..
             } => {
                 let inner = msg.payload_into::<CRCWrap<CRCMessage<OpaqueBytes>>>()?.payload.take();
@@ -177,12 +179,8 @@ where
                     .await?;
             },
 
-            RequestMeta {
-                server: Server::Frontend,
-                conversation_type: Conversation::Ping,
-                ..
-            } => {
-                let events = bincode::deserialize::<Vec<Event>>(msg.payload.payload_bytes()?)?;
+            RequestMeta::PONG => {
+                let events = bincode::deserialize::<Vec<TEvent>>(msg.payload.payload_bytes()?)?;
 
                 for evt in events {
                     output

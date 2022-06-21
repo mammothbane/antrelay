@@ -103,7 +103,7 @@ pub async fn serial_ack_backend(
                             disposition:         Disposition::Ack,
                             request_was_invalid: false,
                             server:              Server::CentralStation,
-                            conversation_type:   msg.header.ty.conversation_type,
+                            event:               msg.header.ty.conversation_type,
                         },
                     },
                     Ack {

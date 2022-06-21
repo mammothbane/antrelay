@@ -39,7 +39,15 @@ pub struct Header {
 
 impl Header {
     #[inline]
-    pub fn downlink(env: &PacketEnv, kind: Conversation) -> Self {
+    pub fn log(env: &PacketEnv, kind: Event) -> Self {
+        let mut result = Header::downlink(env, kind);
+        result.ty = RequestMeta::PONG;
+
+        result
+    }
+
+    #[inline]
+    pub fn downlink(env: &PacketEnv, kind: Event) -> Self {
         Header {
             magic:       Default::default(),
             destination: Destination::Ground,
@@ -51,12 +59,12 @@ impl Header {
                 disposition:         Disposition::Command,
                 request_was_invalid: false,
                 server:              Server::Frontend,
-                conversation_type:   kind,
+                event:               kind,
             },
         }
     }
 
-    pub fn fe_command(env: &PacketEnv, kind: Conversation) -> Self {
+    pub fn fe_command(env: &PacketEnv, kind: Event) -> Self {
         Header {
             magic:       Default::default(),
             destination: Destination::CentralStation,
@@ -68,12 +76,12 @@ impl Header {
                 disposition:         Disposition::Command,
                 request_was_invalid: false,
                 server:              Server::Frontend,
-                conversation_type:   kind,
+                event:               kind,
             },
         }
     }
 
-    pub fn cs_command(env: &PacketEnv, kind: Conversation) -> Self {
+    pub fn cs_command(env: &PacketEnv, kind: Event) -> Self {
         Header {
             magic:       Default::default(),
             destination: Destination::CentralStation,
@@ -85,12 +93,12 @@ impl Header {
                 disposition:         Disposition::Command,
                 request_was_invalid: false,
                 server:              Server::CentralStation,
-                conversation_type:   kind,
+                event:               kind,
             },
         }
     }
 
-    pub fn ant_command(env: &PacketEnv, kind: Conversation) -> Self {
+    pub fn ant_command(env: &PacketEnv, kind: Event) -> Self {
         Header {
             magic:       Default::default(),
             destination: Destination::Ant,
@@ -102,7 +110,7 @@ impl Header {
                 disposition:         Disposition::Command,
                 request_was_invalid: false,
                 server:              Server::Ant,
-                conversation_type:   kind,
+                event:               kind,
             },
         }
     }
@@ -121,7 +129,7 @@ impl Header {
 
         let ty_str = format!(
             "{:?}{}{}",
-            self.ty.conversation_type,
+            self.ty.event,
             (self.ty.disposition == Disposition::Ack).then(|| "[Ack]").unwrap_or(""),
             self.ty.request_was_invalid.then(|| "[Invalid]").unwrap_or(""),
         );
@@ -160,8 +168,8 @@ pub struct RequestMeta {
     #[packed_field(size_bits = "2", ty = "enum")]
     pub server: Server,
 
-    #[packed_field(size_bits = "4", ty = "enum")]
-    pub conversation_type: Conversation,
+    #[packed_field(size_bits = "4")]
+    pub event: Event,
 }
 
 impl RequestMeta {
@@ -169,7 +177,7 @@ impl RequestMeta {
         disposition:         Disposition::Ack,
         request_was_invalid: false,
         server:              Server::Frontend,
-        conversation_type:   Conversation::Ping,
+        event:               Event::FE_PING,
     };
 }
 
@@ -188,23 +196,35 @@ pub enum Server {
     Ant            = 0x0,
     CentralStation = 0x1,
     Frontend       = 0x2,
-    Rover          = 0x3,
-    Lander         = 0x4,
-    Ground         = 0x5,
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PrimitiveEnum_u8)]
-#[repr(u8)]
-pub enum Conversation {
-    Ping              = 0x01,
-    Start             = 0x02,
-    Calibrate         = 0x03,
-    RoverMoving       = 0x04,
-    RoverStopping     = 0x05,
-    PowerSupplied     = 0x06,
-    Relay             = 0x07,
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, derive_more::Into, PackedStruct)]
+#[packed_struct(size_bits = "4")]
+pub struct Event {
+    value: u8,
+}
 
-    GarageOpenPending = 0x0b,
+impl const From<u8> for Event {
+    fn from(val: u8) -> Self {
+        Event {
+            value: val,
+        }
+    }
+}
+
+impl Event {
+    pub const A_CALI: Self = 0x03.into();
+    pub const A_PING: Self = 0x01.into();
+    pub const A_START: Self = 0x02.into();
+    pub const CS_GARAGE_OPEN: Self = 0x01.into();
+    pub const CS_PING: Self = 0x04.into();
+    pub const CS_ROVER_MOVE: Self = 0x03.into();
+    pub const CS_ROVER_STOP: Self = 0x02.into();
+    pub const FE_5V_SUP: Self = 0x04.into();
+    pub const FE_GARAGE_OPEN: Self = 0x01.into();
+    pub const FE_PING: Self = 0x05.into();
+    pub const FE_ROVER_MOVE: Self = 0x03.into();
+    pub const FE_ROVER_STOP: Self = 0x02.into();
 }
 
 #[cfg(test)]
@@ -252,12 +272,12 @@ mod test {
     }
 
     prop_compose! {
-        fn type_strategy()(disposition in direction_strategy(), request_was_invalid in any::<bool>(), server in server_strategy(), conversation_type in conversation_strategy()) -> RequestMeta {
+        fn type_strategy()(disposition in direction_strategy(), request_was_invalid in any::<bool>(), server in server_strategy(), event in any::<u8>()) -> RequestMeta {
             RequestMeta {
                 disposition,
                 request_was_invalid,
                 server,
-                conversation_type,
+                event: (event & 0x0f).into(),
             }
         }
     }
@@ -277,16 +297,5 @@ mod test {
 
     fn server_strategy() -> impl Strategy<Value = Server> {
         prop_oneof![Just(Server::Ant), Just(Server::CentralStation), Just(Server::Frontend),]
-    }
-
-    fn conversation_strategy() -> impl Strategy<Value = Conversation> {
-        prop_oneof![
-            Just(Conversation::Ping),
-            Just(Conversation::Start),
-            Just(Conversation::Calibrate),
-            Just(Conversation::RoverMoving),
-            Just(Conversation::RoverStopping),
-            Just(Conversation::PowerSupplied),
-        ]
     }
 }

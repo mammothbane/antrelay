@@ -9,7 +9,7 @@ use smol::prelude::*;
 use crate::{
     io::CommandSequencer,
     message::{
-        header::Conversation,
+        header::Event,
         CRCMessage,
         Header,
         OpaqueBytes,
@@ -43,7 +43,7 @@ pub async fn state_machine(
     let result = match state {
         State::FlightIdle => {
             let Some(_) = uplink_messages
-                .filter(|msg| msg.header.ty.conversation_type == Conversation::PowerSupplied)
+                .filter(|msg| msg.header.ty.event == Event::FE_5V_SUP)
                 .next()
                 .await else {
                 return Ok(None);
@@ -63,7 +63,7 @@ pub async fn state_machine(
                 let ping = async move {
                     send(
                         "ping",
-                        CRCMessage::new(Header::cs_command(env, Conversation::Ping), vec![]),
+                        CRCMessage::new(Header::cs_command(env, Event::CS_PING), vec![]),
                         backoff,
                         csq,
                     )
@@ -75,9 +75,7 @@ pub async fn state_machine(
 
                 let _garage_open = match util::either(
                     uplink_messages
-                        .filter(|msg| {
-                            msg.header.ty.conversation_type == Conversation::GarageOpenPending
-                        })
+                        .filter(|msg| msg.header.ty.event == Event::FE_GARAGE_OPEN)
                         .next(),
                     ping,
                 )
@@ -97,7 +95,7 @@ pub async fn state_machine(
         State::StartBLE => {
             send(
                 "ble start",
-                CRCMessage::new(Header::cs_command(env.borrow(), Conversation::Start), vec![]),
+                CRCMessage::new(Header::cs_command(env.borrow(), Event::CS_GARAGE_OPEN), vec![]),
                 backoff,
                 csq,
             )
@@ -116,14 +114,12 @@ pub async fn state_machine(
                 let result = util::either(
                     send(
                         "ant_ping",
-                        CRCMessage::new(Header::ant_command(env, Conversation::Ping), vec![]),
+                        CRCMessage::new(Header::ant_command(env, Event::A_PING), vec![]),
                         backoff.clone(),
                         csq,
                     ),
                     uplink_messages
-                        .filter(|msg| {
-                            msg.header.ty.conversation_type == Conversation::RoverStopping
-                        })
+                        .filter(|msg| msg.header.ty.event == Event::FE_ROVER_STOP)
                         .next(),
                 )
                 .await;
@@ -140,15 +136,10 @@ pub async fn state_machine(
 
         State::CalibrateIMU => {
             match util::either(
-                uplink_messages
-                    .filter(|msg| msg.header.ty.conversation_type == Conversation::RoverMoving)
-                    .next(),
+                uplink_messages.filter(|msg| msg.header.ty.event == Event::FE_ROVER_MOVE).next(),
                 send(
                     "calibrate imu",
-                    CRCMessage::new(
-                        Header::cs_command(env.borrow(), Conversation::Calibrate),
-                        vec![],
-                    ),
+                    CRCMessage::new(Header::ant_command(env.borrow(), Event::A_CALI), vec![]),
                     backoff,
                     csq,
                 ),
@@ -166,7 +157,7 @@ pub async fn state_machine(
 
         State::AntRun => {
             if let None = uplink_messages
-                .filter(|msg| msg.header.ty.conversation_type == Conversation::RoverMoving)
+                .filter(|msg| msg.header.ty.event == Event::FE_ROVER_MOVE)
                 .next()
                 .await
             {

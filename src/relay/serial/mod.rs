@@ -15,8 +15,8 @@ use crate::{
     io::CommandSequencer,
     message::{
         header::{
-            Conversation,
             Destination,
+            Event,
             Server,
         },
         payload::{
@@ -106,7 +106,7 @@ where
     's: 'o,
 {
     packets.zip(status).map(move |(packet, status)| {
-        let mut hdr = Header::downlink(env.borrow(), Conversation::Relay);
+        let mut hdr = Header::downlink(env.borrow(), Event::FE_PING);
         hdr.ty.server = Server::CentralStation;
 
         CRCMessage::new(hdr, RelayPacket {

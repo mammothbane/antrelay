@@ -14,7 +14,7 @@ use crate::{
     io,
     io::CommandSequencer,
     message::{
-        header::Conversation,
+        header::Event,
         payload::{
             realtime_status::Flags,
             RealtimeStatus,
@@ -151,7 +151,7 @@ pub async fn run<Socket>(
     );
 
     let wrapped_uplink = raw_uplink.map(move |uplink_pkt| {
-        CRCMessage::new(Header::downlink(packet_env, Conversation::Relay), uplink_pkt)
+        CRCMessage::new(Header::downlink(packet_env, Event::FE_PING), uplink_pkt)
     });
 
     let downlink_packets =
@@ -220,10 +220,7 @@ mod test {
             smol::stream::empty(),
             Arc::new(csq),
             smol::stream::repeat_with(|| {
-                CRCMessage::new(
-                    Header::cs_command(&PacketEnv::default(), Conversation::Calibrate),
-                    vec![],
-                )
+                CRCMessage::new(Header::ant_command(&PacketEnv::default(), Event::A_CALI), vec![])
             }),
             rx_done,
         ));

@@ -7,9 +7,9 @@ use tap::Pipe;
 
 use antrelay::message::{
     header::{
-        Conversation,
         Destination,
         Disposition,
+        Event,
         RequestMeta,
         Server,
     },
@@ -46,7 +46,7 @@ async fn test_5v_sup() -> eyre::Result<()> {
     ));
 
     let orig_msg = CRCMessage::<Vec<u8>, StandardCRC>::new(
-        Header::fe_command(&harness.packet_env, Conversation::PowerSupplied),
+        Header::fe_command(&harness.packet_env, Event::PowerSupplied),
         vec![],
     );
 
@@ -77,7 +77,7 @@ async fn test_5v_sup() -> eyre::Result<()> {
     let msg = pkt.payload_into::<CRCWrap<RelayPacket>>()?;
     tracing::debug!("converted packet");
 
-    assert_eq!(msg.header.ty.conversation_type, Conversation::Relay);
+    assert_eq!(msg.header.ty.event, Event::Relay);
     assert_eq!(msg.header.destination, Destination::Ground);
     assert_eq!(msg.header.ty.server, Server::CentralStation);
 
@@ -101,7 +101,7 @@ async fn test_5v_sup() -> eyre::Result<()> {
         disposition:         Disposition::Ack,
         request_was_invalid: false,
         server:              Server::CentralStation,
-        conversation_type:   Conversation::Ping,
+        event:               Event::Ping,
     });
 
     harness.done.close();

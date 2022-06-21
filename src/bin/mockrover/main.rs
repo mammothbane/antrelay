@@ -31,9 +31,9 @@ use tap::Pipe;
 use antrelay::{
     message::{
         header::{
-            Conversation,
             Destination,
             Disposition,
+            Event,
             RequestMeta,
             Server,
         },
@@ -51,7 +51,7 @@ use antrelay::{
     },
     signals,
     stream_unwrap,
-    tracing::Event,
+    tracing::Event as TEvent,
     util::DEFAULT_SERIAL_CODEC,
     MissionEpoch,
 };
@@ -141,8 +141,8 @@ async fn send_serial(path: String) -> eyre::Result<impl Stream<Item = eyre::Resu
                         ty:          RequestMeta {
                             disposition:         Disposition::Command,
                             request_was_invalid: false,
-                            server:              Server::Rover,
-                            conversation_type:   Conversation::PowerSupplied,
+                            server:              Server::Frontend,
+                            event:               Event::FE_5V_SUP,
                         },
                     },
                     payload: wrapped_payload,
@@ -183,8 +183,8 @@ async fn log_all(
         })
         .pipe(stream_unwrap!("unpacking message"))
         .map(|msg: CRCMessage<OpaqueBytes>| {
-            if msg.header.ty.conversation_type == Conversation::Ping && msg.header.ty.server == Server::Frontend {
-                let payload = bincode::deserialize::<Vec<Event>>(&msg.payload.as_ref())?;
+            if msg.header.ty.event == Event::FE_PING && msg.header.ty.server == Server::Frontend {
+                let payload = bincode::deserialize::<Vec<TEvent>>(&msg.payload.as_ref())?;
                 tracing::debug!(msg.header = %msg.header.display(), ?payload);
             } else {
                 tracing::debug!(msg.header = %msg.header.display(), payload.len = msg.payload.as_ref().len());
