@@ -5,7 +5,10 @@ use futures::{
     AsyncRead,
     AsyncWrite,
 };
-use smol::prelude::*;
+use smol::{
+    channel::Receiver,
+    prelude::*,
+};
 use tap::Pipe;
 
 use crate::{
@@ -25,7 +28,10 @@ use crate::{
         OpaqueBytes,
     },
     stream_unwrap,
-    util::PacketEnv,
+    util::{
+        either,
+        PacketEnv,
+    },
 };
 
 pub mod control;
@@ -51,6 +57,7 @@ pub async fn relay_uplink_to_serial(
     uplink: impl Stream<Item = CRCMessage<OpaqueBytes>> + Unpin,
     csq: impl Borrow<CommandSequencer> + Clone,
     request_backoff: impl Backoff + Clone,
+    done: Receiver<!>,
 ) {
     let mut uplink = uplink
         .filter(|msg| msg.header.destination != Destination::Frontend)
@@ -66,8 +73,15 @@ pub async fn relay_uplink_to_serial(
     let env = env.borrow();
 
     loop {
-        let result =
-            control::state_machine(env, state, &mut uplink, request_backoff.clone(), csq).await;
+        let result = match either(
+            control::state_machine(env, state, &mut uplink, request_backoff.clone(), csq),
+            done.recv(),
+        )
+        .await
+        {
+            either::Left(result) => result,
+            either::Right(_) => return,
+        };
 
         match result {
             Ok(Some(new_state)) => state = new_state,

@@ -147,6 +147,7 @@ pub async fn run<Socket>(
         uplink,
         csq.clone(),
         relay::SERIAL_REQUEST_BACKOFF.clone(),
+        tripwire.clone(),
     );
 
     let wrapped_uplink = raw_uplink.map(move |uplink_pkt| {
