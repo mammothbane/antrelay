@@ -33,7 +33,7 @@ pub enum State {
     AntRun,
 }
 
-#[tracing::instrument(skip(env, uplink_messages, backoff, csq), ret, err(Display))]
+#[tracing::instrument(skip(env, uplink_messages, backoff, csq), ret, err(Display), level = "debug")]
 pub async fn state_machine(
     env: impl Borrow<PacketEnv>,
     state: State,
