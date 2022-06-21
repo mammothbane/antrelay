@@ -30,8 +30,6 @@ use crate::io::{
 };
 
 mod clock;
-#[cfg(unix)]
-pub mod dynload;
 mod reader;
 mod seq;
 mod state;
