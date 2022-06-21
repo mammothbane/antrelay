@@ -52,7 +52,7 @@ macro_rules! atomic_seq {
             let mut old = atomic.load(::std::sync::atomic::Ordering::Acquire);
 
             loop {
-                match atomic.compare_exchange_weak(old, old + 1, ::std::sync::atomic::Ordering::Release, ::std::sync::atomic::Ordering::Relaxed) {
+                match atomic.compare_exchange_weak(old, old.overflowing_add(1).0, ::std::sync::atomic::Ordering::Release, ::std::sync::atomic::Ordering::Relaxed) {
                     Ok(_) => return old,
                     Err(x) => old = x,
                 }
