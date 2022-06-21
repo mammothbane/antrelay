@@ -131,7 +131,7 @@ pub async fn state_machine(
             // TODO: notify stop moving?
 
             if let None = uplink_messages
-                .filter(|msg| msg.header.ty.conversation_type == Conversation::RoverHalting)
+                .filter(|msg| msg.header.ty.conversation_type == Conversation::RoverStopping)
                 .next()
                 .await
             {
@@ -144,7 +144,7 @@ pub async fn state_machine(
         State::CalibrateIMU => {
             match util::either(
                 uplink_messages
-                    .filter(|msg| msg.header.ty.conversation_type == Conversation::RoverWillTurn)
+                    .filter(|msg| msg.header.ty.conversation_type == Conversation::RoverMoving)
                     .next(),
                 send(
                     "calibrate imu",
@@ -169,7 +169,7 @@ pub async fn state_machine(
 
         State::AntRun => {
             if let None = uplink_messages
-                .filter(|msg| msg.header.ty.conversation_type == Conversation::RoverWillTurn)
+                .filter(|msg| msg.header.ty.conversation_type == Conversation::RoverMoving)
                 .next()
                 .await
             {

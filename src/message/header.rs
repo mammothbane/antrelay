@@ -199,8 +199,8 @@ pub enum Conversation {
     Ping              = 0x01,
     Start             = 0x02,
     Calibrate         = 0x03,
-    RoverWillTurn     = 0x04,
-    RoverHalting      = 0x05,
+    RoverMoving       = 0x04,
+    RoverStopping     = 0x05,
     PowerSupplied     = 0x06,
     Relay             = 0x07,
 
@@ -284,8 +284,8 @@ mod test {
             Just(Conversation::Ping),
             Just(Conversation::Start),
             Just(Conversation::Calibrate),
-            Just(Conversation::RoverWillTurn),
-            Just(Conversation::RoverHalting),
+            Just(Conversation::RoverMoving),
+            Just(Conversation::RoverStopping),
             Just(Conversation::PowerSupplied),
         ]
     }

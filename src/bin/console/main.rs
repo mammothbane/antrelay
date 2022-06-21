@@ -105,8 +105,8 @@ async fn _main() -> eyre::Result<()> {
         let ty: Conversation = match command {
             Command::PowerSupplied => Conversation::PowerSupplied,
             Command::GarageOpenPending => Conversation::GarageOpenPending,
-            Command::RoverStopping => Conversation::RoverHalting,
-            Command::RoverMoving => Conversation::RoverWillTurn,
+            Command::RoverStopping => Conversation::RoverStopping,
+            Command::RoverMoving => Conversation::RoverMoving,
         };
 
         let msg =
