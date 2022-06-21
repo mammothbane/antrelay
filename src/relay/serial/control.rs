@@ -28,7 +28,6 @@ pub enum State {
     PingCentralStation,
     StartBLE,
     PollAnt,
-    AwaitRoverStationary,
     CalibrateIMU,
     AntRun,
 }
@@ -111,34 +110,32 @@ pub async fn state_machine(
         State::PollAnt => {
             let env = env.borrow();
             let csq = csq.borrow();
+            let uplink_messages = &mut uplink_messages;
 
             loop {
-                let _result = send(
-                    "ant_ping",
-                    CRCMessage::new(Header::ant_command(env, Conversation::Ping), vec![]),
-                    backoff.clone(),
-                    csq,
+                let result = util::either(
+                    send(
+                        "ant_ping",
+                        CRCMessage::new(Header::ant_command(env, Conversation::Ping), vec![]),
+                        backoff.clone(),
+                        csq,
+                    ),
+                    uplink_messages
+                        .filter(|msg| {
+                            msg.header.ty.conversation_type == Conversation::RoverStopping
+                        })
+                        .next(),
                 )
-                .await?;
+                .await;
 
-                break;
+                match result {
+                    either::Left(ping) => {
+                        ping?;
+                        continue;
+                    },
+                    either::Right(_rover_stopping) => break Some(State::CalibrateIMU),
+                }
             }
-
-            Some(State::AwaitRoverStationary)
-        },
-
-        State::AwaitRoverStationary => {
-            // TODO: notify stop moving?
-
-            if let None = uplink_messages
-                .filter(|msg| msg.header.ty.conversation_type == Conversation::RoverStopping)
-                .next()
-                .await
-            {
-                return Ok(None);
-            }
-
-            Some(State::CalibrateIMU)
         },
 
         State::CalibrateIMU => {
@@ -159,7 +156,7 @@ pub async fn state_machine(
             .await
             {
                 either::Left(None) => return Ok(None),
-                either::Left(_) => Some(State::AwaitRoverStationary),
+                either::Left(_) => Some(State::PollAnt),
                 either::Right(send_result) => {
                     send_result?;
                     Some(State::AntRun)
@@ -176,7 +173,7 @@ pub async fn state_machine(
                 return Ok(None);
             }
 
-            Some(State::AwaitRoverStationary)
+            Some(State::PollAnt)
         },
     };
 
