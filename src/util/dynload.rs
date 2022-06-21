@@ -8,7 +8,6 @@ use std::{
 use smol::stream::StreamExt;
 use tap::Pipe;
 
-#[tracing::instrument(fields(path = %dir.as_ref().display()), skip(dir))]
 pub async unsafe fn apply_patches(dir: impl AsRef<Path>) {
     let dir = match smol::fs::read_dir(dir).await {
         Err(e) => {
