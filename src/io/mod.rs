@@ -40,7 +40,7 @@ where
                     }
                 }
 
-                buf[..(buf.len() - sentinel.len())].to_vec()
+                buf.drain(..(buf.len() - sentinel.len())).collect::<Vec<u8>>()
             };
 
             Some((result, (buf, r, sentinel)))
