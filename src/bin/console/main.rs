@@ -1,19 +1,35 @@
 use std::ffi::OsString;
 
 use rustyline_async::ReadlineError;
-use smol::io::AsyncWriteExt;
+use smol::io::{
+    AsyncWrite,
+    AsyncWriteExt,
+};
 use structopt::StructOpt;
 
 use antrelay::{
     message::{
-        header::Conversation,
+        header::{
+            Conversation,
+            RequestMeta,
+            Server,
+        },
+        payload::RelayPacket,
         CRCMessage,
+        CRCWrap,
         Header,
+        OpaqueBytes,
         StandardCRC,
     },
-    net::DatagramOps,
+    net::{
+        DatagramOps,
+        DatagramReceiver,
+    },
+    tracing::Event,
     util::{
         PacketEnv,
+        DEFAULT_DOWNLINK_CODEC,
+        DEFAULT_SERIAL_CODEC,
         DEFAULT_UPLINK_CODEC,
     },
 };
@@ -48,6 +64,14 @@ async fn _main() -> eyre::Result<()> {
     let env = PacketEnv::default();
 
     let (mut rl, mut w) = rustyline_async::Readline::new("> ".to_owned())?;
+    smol::spawn({
+        let w = w.clone();
+        async move {
+            let sock = <Socket as DatagramOps>::bind(&opts.downlink).await.unwrap();
+            read_downlink(sock, w).await.unwrap();
+        }
+    })
+    .detach();
 
     loop {
         w.flush().await?;
@@ -90,6 +114,86 @@ async fn _main() -> eyre::Result<()> {
         let pkt = (DEFAULT_UPLINK_CODEC.encode)(msg)?;
         sock.send(&pkt).await?;
 
-        w.write_all(b"sent\n").await?;
+        w.write_all(format!("=> {:?}\n", ty).as_bytes()).await?;
+    }
+}
+
+async fn read_downlink<Socket>(
+    downlink: Socket,
+    mut output: impl AsyncWrite + Unpin,
+) -> eyre::Result<()>
+where
+    Socket: DatagramReceiver + Send + Sync,
+    Socket::Error: std::error::Error + Send + Sync + 'static,
+{
+    let mut buf = vec![0u8; 8192];
+
+    loop {
+        output.flush().await?;
+
+        let count = downlink.recv(&mut buf).await?;
+        let pkt = &buf[..count];
+
+        let msg = (DEFAULT_DOWNLINK_CODEC.decode)(pkt.to_vec())?;
+
+        output.write_all(format!("RECV {}\n", msg.header.display()).as_bytes()).await?;
+
+        match msg.header.ty {
+            RequestMeta {
+                server: Server::CentralStation,
+                conversation_type: Conversation::Relay,
+                ..
+            } => {
+                let inner = msg.payload_into::<CRCWrap<RelayPacket>>()?.payload.take();
+                let payload = (DEFAULT_SERIAL_CODEC.decode)(inner.payload)?;
+
+                output
+                    .write_all(
+                        format!(
+                            "\tWRAP {:?}\n\t\tWRAP: {}\n",
+                            inner.header,
+                            payload.header.display(),
+                        )
+                        .as_bytes(),
+                    )
+                    .await?;
+            },
+
+            RequestMeta {
+                server: Server::Frontend,
+                conversation_type: Conversation::Relay,
+                ..
+            } => {
+                let inner = msg.payload_into::<CRCWrap<CRCMessage<OpaqueBytes>>>()?.payload.take();
+                output
+                    .write_all(
+                        format!(
+                            "\tWRAP {}\n\t\tlen: {}\n",
+                            inner.header.display(),
+                            inner.payload.as_ref().len(),
+                        )
+                        .as_bytes(),
+                    )
+                    .await?;
+            },
+
+            RequestMeta {
+                server: Server::Frontend,
+                conversation_type: Conversation::Ping,
+                ..
+            } => {
+                let events = bincode::deserialize::<Vec<Event>>(msg.payload.payload_bytes()?)?;
+
+                for evt in events {
+                    output
+                        .write_all(format!("\tLOG {:?}: {:?}\n", evt.ty, evt.args).as_bytes())
+                        .await?;
+                }
+            },
+
+            _ => {
+                output.write_all(b"\tpacket unrecognzed\n").await?;
+            },
+        }
     }
 }

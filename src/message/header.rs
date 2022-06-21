@@ -204,7 +204,6 @@ pub enum Conversation {
     PowerSupplied     = 0x06,
     Relay             = 0x07,
 
-    SerialRelay       = 0x0a,
     GarageOpenPending = 0x0b,
 }
 

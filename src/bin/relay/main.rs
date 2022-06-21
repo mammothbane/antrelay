@@ -60,11 +60,11 @@ fn main() -> Result<()> {
 
     tracing::info!(
         downlink_ty = ?antrelay::message::payload::log::Type::Startup,
-        application = build::PACKAGE,
-        version = build::VERSION,
-        build_commit = build::COMMIT_HASH,
-        built_at = build::BUILD_TIMESTAMP,
-        using_rustc = build::RUSTC_COMMIT_HASH,
+        application = %build::PACKAGE,
+        version = %build::VERSION,
+        build_commit = %build::COMMIT_HASH,
+        built_at = %build::BUILD_TIMESTAMP,
+        using_rustc = %build::RUSTC_COMMIT_HASH,
         "tracing subsystem initialized"
     );
 
