@@ -24,10 +24,10 @@ use antrelay::{
     },
     standard_graph,
     util::{
-        GroundLinkCodec,
+        LinkCodecs,
         PacketEnv,
         SerialCodec,
-        DEFAULT_GROUND_CODEC,
+        DEFAULT_LINK_CODEC,
         DEFAULT_SERIAL_CODEC,
     },
 };
@@ -52,7 +52,7 @@ pub struct Harness {
 
     pub packet_env:   Arc<PacketEnv>,
     pub serial_codec: Arc<SerialCodec>,
-    pub link_codec:   Arc<GroundLinkCodec>,
+    pub link_codecs:  Arc<LinkCodecs>,
 
     pub pumps: Option<Pin<Box<dyn Future<Output = ()> + Send>>>,
 }
@@ -74,7 +74,7 @@ impl Harness {
         });
 
         let serial_codec = Arc::new(DEFAULT_SERIAL_CODEC.clone());
-        let ground_codec = Arc::new(DEFAULT_GROUND_CODEC.clone());
+        let link_codecs = Arc::new(DEFAULT_LINK_CODEC.clone());
 
         let (drive_serial, csq, wrapped_downlink) = standard_graph::serial(
             (serial_codec.clone(), packet_env.clone()),
@@ -86,7 +86,7 @@ impl Harness {
         let (downlink_tx, downlink_rx) = smol::channel::unbounded();
 
         let fut = standard_graph::run(
-            (ground_codec.clone(), packet_env.clone()),
+            (link_codecs.clone(), packet_env.clone()),
             uplink_rx,
             std::iter::once(smol::stream::repeat(downlink_tx)),
             log_rx,
@@ -111,7 +111,7 @@ impl Harness {
 
             packet_env,
             serial_codec,
-            link_codec: ground_codec,
+            link_codecs,
 
             log: log_tx,
         }

@@ -27,7 +27,7 @@ use antrelay::{
     stream_unwrap,
     util::{
         PacketEnv,
-        DEFAULT_GROUND_CODEC,
+        DEFAULT_LINK_CODEC,
         DEFAULT_SERIAL_CODEC,
     },
 };
@@ -90,7 +90,7 @@ fn main() -> Result<()> {
             let uplink_sockets = net::socket_stream::<Socket>(
                 options.uplink_address,
                 DEFAULT_BACKOFF.clone(),
-                SocketMode::Connect,
+                SocketMode::Bind,
             )
             .pipe(stream_unwrap!("connecting to uplink socket"));
 
@@ -103,7 +103,7 @@ fn main() -> Result<()> {
 
             let serial_codec = &*DEFAULT_SERIAL_CODEC;
             let packet_env = PacketEnv::default();
-            let link_codec = &*DEFAULT_GROUND_CODEC;
+            let link_codec = &*DEFAULT_LINK_CODEC;
 
             let (serial_pump, csq, serial_downlink) = standard_graph::serial(
                 (serial_codec, &packet_env),

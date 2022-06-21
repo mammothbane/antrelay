@@ -64,16 +64,44 @@ impl<E> Clone for SerialCodec<E> {
     }
 }
 
-pub struct GroundLinkCodec<E = eyre::Report> {
+pub struct DownlinkCodec<E = eyre::Report> {
     pub encode: Arc<SerializeFunction<E>>,
     pub decode: Arc<DeserializeFunction<E>>,
 }
 
-impl<E> Clone for GroundLinkCodec<E> {
+impl<E> Clone for DownlinkCodec<E> {
     fn clone(&self) -> Self {
         Self {
             encode: self.encode.clone(),
             decode: self.decode.clone(),
+        }
+    }
+}
+
+pub struct UplinkCodec<E = eyre::Report> {
+    pub encode: Arc<SerializeFunction<E>>,
+    pub decode: Arc<DeserializeFunction<E>>,
+}
+
+impl<E> Clone for UplinkCodec<E> {
+    fn clone(&self) -> Self {
+        Self {
+            encode: self.encode.clone(),
+            decode: self.decode.clone(),
+        }
+    }
+}
+
+pub struct LinkCodecs<E = eyre::Report> {
+    pub downlink: Arc<DownlinkCodec<E>>,
+    pub uplink:   Arc<UplinkCodec<E>>,
+}
+
+impl<E> Clone for LinkCodecs<E> {
+    fn clone(&self) -> Self {
+        Self {
+            downlink: self.downlink.clone(),
+            uplink:   self.uplink.clone(),
         }
     }
 }
@@ -96,7 +124,7 @@ impl Default for PacketEnv {
 pub const DEFAULT_COBS_SENTINEL: u8 = 0u8;
 
 lazy_static::lazy_static! {
-    pub static ref DEFAULT_GROUND_CODEC: GroundLinkCodec = GroundLinkCodec {
+    pub static ref DEFAULT_DOWNLINK_CODEC: DownlinkCodec = DownlinkCodec {
         encode:   Arc::new(crate::compose!(
             and_then,
             pack_message,
@@ -107,6 +135,16 @@ lazy_static::lazy_static! {
             brotli_decompress,
             unpack_message,
         )),
+    };
+
+    pub static ref DEFAULT_UPLINK_CODEC: UplinkCodec = UplinkCodec {
+        encode: Arc::new(pack_message),
+        decode: Arc::new(unpack_message),
+    };
+
+    pub static ref DEFAULT_LINK_CODEC: LinkCodecs = LinkCodecs {
+        uplink: Arc::new(DEFAULT_UPLINK_CODEC.clone()),
+        downlink: Arc::new(DEFAULT_DOWNLINK_CODEC.clone()),
     };
 }
 
@@ -130,9 +168,9 @@ lazy_static::lazy_static! {
 #[cfg(not(feature = "serial_cobs"))]
 lazy_static::lazy_static! {
     pub static ref DEFAULT_SERIAL_CODEC: SerialCodec = SerialCodec {
-        encode:   Arc::new(pack_message),
-        decode: Arc::new(unpack_message),
-        sentinel:    crate::message::header::Magic::VALUE,
+        encode:     Arc::new(pack_message),
+        decode:     Arc::new(unpack_message),
+        sentinel:   crate::message::header::Magic::VALUE,
     };
 }
 

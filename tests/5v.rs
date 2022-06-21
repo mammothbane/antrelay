@@ -20,6 +20,7 @@ use antrelay::message::{
     CRCMessage,
     CRCWrap,
     Header,
+    StandardCRC,
 };
 
 use common::Harness;
@@ -44,17 +45,17 @@ async fn test_5v_sup() -> eyre::Result<()> {
         harness.done_rx.clone(),
     ));
 
-    let orig_msg = CRCMessage::new(
+    let orig_msg = CRCMessage::<Vec<u8>, StandardCRC>::new(
         Header::fe_command(&harness.packet_env, Conversation::PowerSupplied),
         vec![],
     );
 
-    (harness.link_codec.encode)(orig_msg.clone())?
+    (harness.link_codecs.uplink.encode)(orig_msg.clone())?
         .pipe(|pkt| harness.uplink.broadcast(pkt))
         .await?;
 
     let pkt = (&mut harness.downlink)
-        .map(|x| (harness.link_codec.decode)(x))
+        .map(|x| (harness.link_codecs.downlink.decode)(x))
         .filter(|msg| {
             let result = match msg {
                 Err(_) => true,

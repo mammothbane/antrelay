@@ -12,7 +12,7 @@ use antrelay::bootstrap;
 pub fn init() -> eyre::Result<impl Stream<Item = antrelay::tracing::Event>> {
     let stderr_layer = tracing_subscriber::fmt::layer()
         .with_writer(std::io::stderr)
-        .with_span_events(FmtSpan::FULL ^ FmtSpan::NEW);
+        .with_span_events(FmtSpan::CLOSE);
 
     let stderr_layer = {
         cfg_if::cfg_if! {

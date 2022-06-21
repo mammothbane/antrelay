@@ -35,7 +35,7 @@ use crate::{
     trip,
     util::{
         splittable_stream,
-        GroundLinkCodec,
+        LinkCodecs,
         PacketEnv,
         SerialCodec,
     },
@@ -119,7 +119,7 @@ where
 }
 
 pub async fn run<Socket>(
-    (link_codec, packet_env): (impl Borrow<GroundLinkCodec>, impl Borrow<PacketEnv> + Send),
+    (link_codec, packet_env): (impl Borrow<LinkCodecs>, impl Borrow<PacketEnv> + Send),
     uplink: impl Stream<Item = Vec<u8>> + Unpin + Send,
     downlink_sockets: impl IntoIterator<Item = impl Stream<Item = Socket> + Unpin>,
     trace_event: impl Stream<Item = CRCMessage<OpaqueBytes>> + Unpin + Send,
@@ -136,8 +136,8 @@ pub async fn run<Socket>(
     let (raw_uplink, uplink_pump) =
         uplink.pipe(trip!(tripwire)).pipe(|s| splittable_stream(s, 1024));
 
-    let ser = link_codec.encode.clone();
-    let de = link_codec.decode.clone();
+    let ser = link_codec.downlink.encode.clone();
+    let de = link_codec.uplink.decode.clone();
 
     let uplink = raw_uplink.clone().map(&*de).pipe(stream_unwrap!("unpacking uplink packet"));
 
@@ -150,7 +150,6 @@ pub async fn run<Socket>(
     );
 
     let wrapped_uplink = raw_uplink.map(move |uplink_pkt| {
-        tracing::debug!("wrapping uplink packet");
         CRCMessage::new(Header::downlink(packet_env, Conversation::Relay), uplink_pkt)
     });
 
