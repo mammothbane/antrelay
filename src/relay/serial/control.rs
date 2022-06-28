@@ -63,7 +63,7 @@ pub async fn state_machine(
                 let ping = async move {
                     send(
                         "ping",
-                        CRCMessage::new(Header::cs_command(env, Event::CS_PING), vec![]),
+                        CRCMessage::new(Header::cs_command(env, Event::CS_PING), vec![0]),
                         backoff,
                         csq,
                     )
@@ -95,7 +95,7 @@ pub async fn state_machine(
         State::StartBLE => {
             send(
                 "ble start",
-                CRCMessage::new(Header::cs_command(env.borrow(), Event::CS_GARAGE_OPEN), vec![]),
+                CRCMessage::new(Header::cs_command(env.borrow(), Event::CS_GARAGE_OPEN), vec![0]),
                 backoff,
                 csq,
             )
@@ -114,7 +114,7 @@ pub async fn state_machine(
                 let result = util::either(
                     send(
                         "ant_ping",
-                        CRCMessage::new(Header::ant_command(env, Event::A_PING), vec![]),
+                        CRCMessage::new(Header::ant_command(env, Event::A_PING), vec![0]),
                         backoff.clone(),
                         csq,
                     ),
@@ -139,7 +139,7 @@ pub async fn state_machine(
                 uplink_messages.filter(|msg| msg.header.ty.event == Event::FE_ROVER_MOVE).next(),
                 send(
                     "calibrate imu",
-                    CRCMessage::new(Header::ant_command(env.borrow(), Event::A_CALI), vec![]),
+                    CRCMessage::new(Header::ant_command(env.borrow(), Event::A_CALI), vec![0]),
                     backoff,
                     csq,
                 ),

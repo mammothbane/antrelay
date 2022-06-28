@@ -93,7 +93,7 @@ pub fn write_packet_stream(
     s.owned_scan(w, |mut w, pkt| async move {
         let result = w
             .write_all(&pkt)
-            .instrument(tracing::debug_span!("write packet", len = pkt.len(), content = ?pkt))
+            .instrument(tracing::debug_span!("write packet", len = pkt.len(), content = ?pkt, content_hex = %hex::encode(&pkt)))
             .await;
 
         Some((w, result))
