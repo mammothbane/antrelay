@@ -68,7 +68,8 @@ pub async fn state_machine(
                         csq,
                     )
                     .await?;
-                    smol::Timer::after(Duration::from_secs(30)).await;
+
+                    smol::Timer::after(Duration::from_secs(5)).await;
 
                     Ok(()) as eyre::Result<()>
                 };

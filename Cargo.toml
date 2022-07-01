@@ -62,7 +62,7 @@ libloading = "0.7"
 ctrlc = "3.2"
 
 [features]
-default = []
+default = ["serial_cobs"]
 serial_cobs = ["cobs"]
 
 [dev-dependencies]
