@@ -303,6 +303,12 @@ pub fn brotli_decompress(v: Vec<u8>) -> eyre::Result<Vec<u8>> {
     Ok(out)
 }
 
+#[cfg(not(debug_assertions))]
+const SEND_TIMEOUT: u64 = 3000;
+
+#[cfg(any(test, debug_assertions))]
+const SEND_TIMEOUT: u64 = 150;
+
 #[tracing::instrument(level = "debug", skip(backoff, csq), fields(%msg), err(Display), ret)]
 #[inline]
 pub async fn send(
@@ -317,7 +323,10 @@ pub async fn send(
         let msg = msg.clone();
 
         async move {
-            let result = csq.submit(msg).await.map_err(backoff::Error::transient)?;
+            let result = timeout(SEND_TIMEOUT, csq.submit(msg))
+                .await
+                .map_err(backoff::Error::transient)?
+                .map_err(backoff::Error::transient)?;
 
             if result.header.ty.request_was_invalid {
                 return Err(backoff::Error::transient(eyre::eyre!("cs reports '{}' invalid", desc)));

@@ -74,7 +74,7 @@ where
     'e: 'o,
     's: 'o,
 {
-    s.pipe(|s| futures::stream::StreamExt::chunks(s, 2))
+    s.pipe(|s| futures::stream::StreamExt::chunks(s, 5))
         .map(|evts| bincode::serialize(&evts))
         .pipe(stream_unwrap!("serializing log payload"))
         .map(move |payload| -> CRCMessage<OpaqueBytes> {

@@ -15,7 +15,6 @@ use crate::{
     io::CommandSequencer,
     message::{
         header::{
-            Destination,
             Event,
             Server,
         },
@@ -60,7 +59,6 @@ pub async fn relay_uplink_to_serial(
     done: Receiver<!>,
 ) {
     let mut uplink = uplink
-        .filter(|msg| msg.header.destination != Destination::Frontend)
         .map(|msg| -> eyre::Result<_> {
             let crc = msg.payload.checksum()?.to_vec();
 

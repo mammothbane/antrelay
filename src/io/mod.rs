@@ -40,7 +40,11 @@ where
                     }
                 }
 
-                buf.drain(..(buf.len() - sentinel.len())).collect::<Vec<u8>>()
+                let result = buf.drain(..(buf.len() - sentinel.len())).collect::<Vec<u8>>();
+
+                tracing::debug!(content_hex = %hex::encode(&result), "read serial packet");
+
+                result
             };
 
             Some((result, (buf, r, sentinel)))

@@ -57,6 +57,7 @@ enum Command {
     GarageOpenPending,
     RoverStopping,
     RoverMoving,
+    DebugPing,
 }
 
 async fn _main() -> eyre::Result<()> {
@@ -108,14 +109,17 @@ async fn _main() -> eyre::Result<()> {
             Command::GarageOpenPending => Event::FE_GARAGE_OPEN,
             Command::RoverStopping => Event::FE_ROVER_STOP,
             Command::RoverMoving => Event::FE_ROVER_MOVE,
+            #[cfg(debug_assertions)]
+            Command::DebugPing => Event::FE_CS_PING,
         };
 
         let msg =
             CRCMessage::<Vec<u8>, StandardCRC>::new(Header::fe_command(&env, ty), vec![0u8; 0]);
+
         let pkt = (DEFAULT_UPLINK_CODEC.encode)(msg)?;
         sock.send(&pkt).await?;
 
-        w.write_all(format!("=> {:?}\n", ty).as_bytes()).await?;
+        w.write_all(format!("\n=> {:?}\n", ty).as_bytes()).await?;
     }
 }
 

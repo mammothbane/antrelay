@@ -67,7 +67,7 @@ impl Header {
     pub fn fe_command(env: &PacketEnv, kind: Event) -> Self {
         Header {
             magic:       Default::default(),
-            destination: Destination::CentralStation,
+            destination: Destination::Frontend,
 
             timestamp: env.clock.now(),
             seq:       env.seq.next(),
@@ -221,6 +221,8 @@ impl Event {
     pub const CS_ROVER_MOVE: Self = 0x03.into();
     pub const CS_ROVER_STOP: Self = 0x02.into();
     pub const FE_5V_SUP: Self = 0x04.into();
+    #[cfg(debug_assertions)]
+    pub const FE_CS_PING: Self = 0x0f.into();
     pub const FE_GARAGE_OPEN: Self = 0x01.into();
     pub const FE_PING: Self = 0x05.into();
     pub const FE_ROVER_MOVE: Self = 0x03.into();

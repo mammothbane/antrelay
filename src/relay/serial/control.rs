@@ -40,14 +40,44 @@ pub async fn state_machine(
     backoff: impl Backoff + Clone,
     csq: impl Borrow<CommandSequencer>,
 ) -> eyre::Result<Option<State>> {
+    tracing::debug!(?state, "state machine start");
+
     let result = match state {
         State::FlightIdle => {
-            let Some(_) = uplink_messages
-                .filter(|msg| msg.header.ty.event == Event::FE_5V_SUP)
+            tracing::debug!("awaiting match");
+
+            let Some(msg) = uplink_messages
+                .inspect(|msg| tracing::debug!(?msg, "got uplink msg"))
+                .filter(|msg| {
+                    let evt = msg.header.ty.event;
+
+                    let result = evt == Event::FE_5V_SUP;
+
+                    #[cfg(debug_assertions)]
+                    return result || evt == Event::FE_CS_PING;
+
+                    #[cfg(not(debug_assertions))]
+                    result
+                })
                 .next()
                 .await else {
                 return Ok(None);
             };
+
+            #[cfg(debug_assertions)]
+            if msg.header.ty.event == Event::FE_CS_PING {
+                tracing::debug!("got event, sending debug ping");
+
+                send(
+                    "debug_ping",
+                    CRCMessage::new(Header::cs_command(env.borrow(), Event::CS_PING), vec![0]),
+                    backoff,
+                    csq,
+                )
+                .await?;
+
+                tracing::debug!("ping sent");
+            }
 
             Some(State::PingCentralStation)
         },
