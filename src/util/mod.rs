@@ -8,7 +8,7 @@ use std::{
 };
 
 use packed_struct::PackedStructSlice;
-use smol::stream::{
+use tokio::stream::{
     Stream,
     StreamExt,
 };

@@ -1,18 +1,34 @@
-use signal_hook::{
-    consts::*,
-    iterator::Signals,
+use actix::{
+    Actor,
+    Addr,
+    ArbiterHandle,
+    Context,
+    Running,
 };
-use std::thread;
+use actix_broker::{
+    ArbiterBroker,
+    Broker,
+    BrokerIssue,
+};
+use signal_hook::consts::*;
 
-pub fn signals() -> eyre::Result<smol::channel::Receiver<!>> {
-    let (tx, rx) = smol::channel::bounded(1);
-    let mut signals = Signals::new(&[SIGTERM, SIGINT])?;
+#[derive(Default)]
+pub struct UnixSignal(Option<tokio::task::JoinHandle<()>>);
 
-    thread::spawn(move || {
-        signals.wait().next();
+impl Actor for UnixSignal {
+    type Context = Context<Self>;
 
-        tx.close();
-    });
+    fn started(&mut self, _ctx: &mut Context<Self>) {
+        self.0 = Some(actix::spawn(async move {
+            let mut signals = signal_hook_tokio::Signals::new(&[SIGTERM, SIGINT]).unwrap();
 
-    Ok(rx)
+            signals.next().await;
+
+            Broker::<ArbiterBroker>::issue_async(crate::signals::Term);
+        }));
+    }
+
+    fn stopping(&mut self, _ctx: &mut Self::Context) -> Running {
+        self.0.and_then(|handle| handle.abort());
+    }
 }

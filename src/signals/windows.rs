@@ -1,9 +1,21 @@
-pub fn signals() -> eyre::Result<smol::channel::Receiver<!>> {
-    let (tx, rx) = smol::channel::bounded(1);
+use actix::{
+    Actor,
+    Context,
+};
 
-    ctrlc::set_handler(move || {
-        tx.close();
-    })?;
+use actix_broker::{
+    ArbiterBroker,
+    Broker,
+    BrokerIssue,
+};
 
-    Ok(rx)
+#[derive(Default)]
+pub struct WindowsSignal;
+
+impl Actor for WindowsSignal {
+    type Context = Context<Self>;
+
+    fn started(&mut self, _ctx: &mut Self::Context) {
+        ctrlc::set_handler(|| Broker::<ArbiterBroker>::issue_async(crate::signals::Term)).unwrap();
+    }
 }
