@@ -18,7 +18,11 @@ pub fn split_packets<'r, 'o>(
 where
     'r: 'o,
 {
+    #[cfg(not(feature = "serial_cobs"))]
     let buf = sentinel.clone();
+
+    #[cfg(feature = "serial_cobs")]
+    let buf = vec![];
 
     smol::stream::unfold((buf, r, sentinel), move |(mut buf, mut r, sentinel)| {
         Box::pin(async move {
@@ -42,7 +46,12 @@ where
 
                 let result = buf.drain(..(buf.len() - sentinel.len())).collect::<Vec<u8>>();
 
-                tracing::debug!(content_hex = %hex::encode(&result), "read serial packet");
+                #[cfg(feature = "serial_cobs")]
+                {
+                    buf.truncate(0);
+                }
+
+                tracing::debug!(content_hex = %hex::encode(&result), "split serial packet");
 
                 result
             };
@@ -61,10 +70,11 @@ pub fn unpack_cobs_stream(
     s.map(move |data| unpack_cobs(data, sentinel))
 }
 
-#[tracing::instrument(level = "trace", fields(packet = ?packet), err(Display), ret)]
+#[tracing::instrument(level = "trace", fields(packet = %hex::encode(&packet)), err(Display), ret)]
 #[cfg(feature = "serial_cobs")]
 pub fn unpack_cobs(mut packet: Vec<u8>, sentinel: u8) -> eyre::Result<Vec<u8>> {
     let len_without_sentinel = packet.len().max(1) - 1;
+
     let new_len =
         cobs::decode_in_place_with_sentinel(&mut packet[..len_without_sentinel], sentinel)
             .map_err(|()| eyre::eyre!("cobs decode failed"))?;

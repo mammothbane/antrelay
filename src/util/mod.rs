@@ -157,6 +157,10 @@ lazy_static::lazy_static! {
         decode: Arc::new(crate::compose!(
             and_then,
             |v| unpack_cobs(v, DEFAULT_COBS_SENTINEL),
+            |unpacked| {
+                tracing::debug!(content = %hex::encode(&unpacked), "cobs serial message unpacked");
+                Ok(unpacked)
+            },
             unpack_message
         )),
         sentinel:    vec![DEFAULT_COBS_SENTINEL],
@@ -267,7 +271,7 @@ where
 }
 
 #[inline]
-#[tracing::instrument(skip(t), err(Display), ret, level = "trace")]
+#[tracing::instrument(skip(t), err(Display), level = "trace")]
 pub fn pack_message<T>(t: T) -> eyre::Result<Vec<u8>>
 where
     T: PackedStructSlice,
@@ -307,7 +311,7 @@ pub fn brotli_decompress(v: Vec<u8>) -> eyre::Result<Vec<u8>> {
 const SEND_TIMEOUT: u64 = 1000;
 
 #[cfg(any(test, debug_assertions))]
-const SEND_TIMEOUT: u64 = 150;
+const SEND_TIMEOUT: u64 = 15000;
 
 #[tracing::instrument(level = "debug", skip(backoff, csq), fields(%msg), err(Display), ret)]
 #[inline]
@@ -319,33 +323,24 @@ pub async fn send(
 ) -> eyre::Result<CRCMessage<Ack>> {
     let csq = csq.borrow();
 
-    // let result = backoff::future::retry_notify(backoff, move || {
-    //     let msg = msg.clone();
-    //
-    //     async move {
-    //         let result = csq.submit(msg)
-    //             .await
-    //             .map_err(backoff::Error::transient)?;
-    //
-    //         if result.header.ty.request_was_invalid {
-    //             return Err(backoff::Error::transient(eyre::eyre!("cs reports '{}' invalid", desc)));
-    //         }
-    //
-    //         Ok(result)
-    //     }
-    // }, |e, dur| {
-    //     tracing::warn!(error = %e, backoff_dur = ?dur, "submitting '{}' to central station", desc);
-    // }).await?;
+    let result = backoff::future::retry_notify(backoff, move || {
+        let msg = msg.clone();
 
-    let result = timeout(SEND_TIMEOUT, csq.submit(msg)).await??;
+        async move {
+            let result = timeout(SEND_TIMEOUT, csq.submit(msg))
+                .await
+                .and_then(|x| x)
+                .map_err(backoff::Error::transient)?;
 
-    // let result = csq.submit(msg).await?;
+            if result.header.ty.request_was_invalid {
+                return Err(backoff::Error::transient(eyre::eyre!("cs reports '{}' invalid", desc)));
+            }
 
-    if result.header.ty.request_was_invalid {
-        return Err(eyre::eyre!("cs reports '{}' invalid", desc));
-    }
+            Ok(result)
+        }
+    }, |e, dur| {
+        tracing::warn!(error = %e, backoff_dur = ?dur, "submitting '{}' to central station", desc);
+    }).await?;
 
     Ok(result)
-
-    // Ok(result)
 }

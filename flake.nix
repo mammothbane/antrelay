@@ -12,6 +12,11 @@
       url = "git+ssh://gitea@git.nathanperry.dev/fork/naersk";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+
+    cobs-python = {
+      url = github:cmcqueen/cobs-python;
+      flake = false;
+    };
   };
 
   description = "lunar relay";
@@ -144,6 +149,17 @@
           (pkgs.writeShellScriptBin "sockpair" ''
             exec ${pkgs.socat}/bin/socat -d -d pty,raw,echo=0 pty,raw,echo=0
           '')
+
+          (pkgs.python3.withPackages (p: with p; [
+            pyserial
+
+            (buildPythonPackage {
+              pname = "cobs";
+              version = "1.2.0";
+
+              src = inputs.cobs-python;
+            })
+          ]))
         ]) ++ deps;
 
         RUST_SRC_PATH = "${pkgs.naerskRust}/lib/rustlib/src/rust";

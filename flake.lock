@@ -1,5 +1,21 @@
 {
   "nodes": {
+    "cobs-python": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1648682439,
+        "narHash": "sha256-zjWAyE3O02XIglYKmcsoeWPpZ//fuGxRN7cAaHPObEo=",
+        "owner": "cmcqueen",
+        "repo": "cobs-python",
+        "rev": "8a26e6604f268a01ccf90bac3886879c301a48dc",
+        "type": "github"
+      },
+      "original": {
+        "owner": "cmcqueen",
+        "repo": "cobs-python",
+        "type": "github"
+      }
+    },
     "flake-utils": {
       "locked": {
         "lastModified": 1652776076,
@@ -69,6 +85,7 @@
     },
     "root": {
       "inputs": {
+        "cobs-python": "cobs-python",
         "flake-utils": "flake-utils",
         "naersk": "naersk",
         "nixpkgs": "nixpkgs",

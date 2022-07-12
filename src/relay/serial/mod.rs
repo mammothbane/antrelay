@@ -15,7 +15,6 @@ use crate::{
     io::CommandSequencer,
     message::{
         header::{
-            Destination,
             Event,
             Server,
         },

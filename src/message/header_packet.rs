@@ -1,5 +1,3 @@
-use std::backtrace::Backtrace;
-
 use packed_struct::{
     prelude::*,
     PackedStructInfo,
@@ -35,10 +33,7 @@ where
         T: PackedStructSlice,
     {
         let packed_payload = self.payload.pack_to_vec()?;
-        tracing::trace!(?packed_payload, bt = %Backtrace::capture(), "pack ok");
-
         let new_payload = T::unpack_from_slice(&packed_payload)?;
-        tracing::trace!("unpack ok");
 
         Ok(HeaderPacket {
             header:  self.header.clone(),
