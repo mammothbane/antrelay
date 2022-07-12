@@ -5,7 +5,6 @@
 #![feature(const_trait_impl)]
 #![feature(let_else)]
 #![feature(associated_type_defaults)]
-#![feature(explicit_generic_args_with_impl_trait)]
 #![feature(iter_intersperse)]
 #![feature(const_convert)]
 #![feature(backtrace)]

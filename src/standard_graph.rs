@@ -73,26 +73,19 @@ where
     let (csq, serial_ack_results, serial_uplink_packets) =
         CommandSequencer::new(serial_downlink_packets);
 
-    let (encoded_serial_packets, serial_command_pump) = serial_uplink_packets
+    let encoded_serial_packets = serial_uplink_packets
         .map(move |x| ser(x))
         .pipe(trip!(tripwire))
-        .pipe(stream_unwrap!("encoding serial uplink packets"))
-        .pipe(split!());
+        .pipe(stream_unwrap!("encoding serial uplink packets"));
 
-    let pump_serial_uplink =
-        io::write_packet_stream(encoded_serial_packets.clone(), serial_uplink_io)
-            .pipe(stream_unwrap!("uplinking serial packet"))
-            .for_each(|_| {});
+    let pump_serial_uplink = io::write_packet_stream(encoded_serial_packets, serial_uplink_io)
+        .pipe(stream_unwrap!("uplinking serial packet"))
+        .for_each(|_| {});
 
     let pump_acks = serial_ack_results.pipe(stream_unwrap!("reading serial ack")).for_each(|_| {});
+
     let drive_serial = async move {
-        futures::future::join4(
-            pump_acks,
-            pump_serial_reader,
-            pump_serial_uplink,
-            serial_command_pump,
-        )
-        .await;
+        futures::future::join3(pump_acks, pump_serial_reader, pump_serial_uplink).await;
     };
 
     let csq = Arc::new(csq);
