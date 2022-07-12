@@ -1,6 +1,5 @@
 #![feature(never_type)]
 #![feature(io_safety)]
-#![feature(explicit_generic_args_with_impl_trait)]
 
 use std::{
     sync::{

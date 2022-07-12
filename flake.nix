@@ -32,8 +32,8 @@
           (self: super: let
             rust = (super.rustChannelOf {
               channel = "nightly";
-              date = "2022-03-29";
-              sha256 = "Ht5GU1xscXyhtc1zH/ppb2zJ259UXOvflcnfGdi9Adw=";
+              date = "2022-06-29";
+              sha256 = "nIAPO/mAqVWRFaMrgjJwbx/Mp9RXZqX92TLJBPlno0E=";
             }).rust.override {
               extensions = ["rust-src"];
               targets = [

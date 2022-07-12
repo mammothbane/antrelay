@@ -3,7 +3,6 @@
 #![feature(proc_macro_hygiene)]
 #![feature(stmt_expr_attributes)]
 #![feature(let_else)]
-#![feature(explicit_generic_args_with_impl_trait)]
 #![feature(iter_intersperse)]
 #![deny(unsafe_code)]
 
