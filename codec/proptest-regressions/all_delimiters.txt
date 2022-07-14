@@ -5,3 +5,4 @@
 # It is recommended to check this file in to source control so that
 # everyone who runs the test benefits from these saved cases.
 cc 24f6a650c5c72375c2cca824bf2ce5b8f29a8af2f45c005f2e26ed812e442353 # shrinks to delim = [], vs = [[0]]
+cc 6faeeeb1956f6c680b7644eeda8bf1ca6d6082c8b6f6cbfbdd348fe7fef78c68 # shrinks to delim = [12, 12], vs = [[12]]

@@ -45,8 +45,66 @@ impl Decoder for CobsCodec {
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
         let report =
             cobs::decode_in_place_report(src).map_err(|_| Error::UnspecifiedCobsFailure)?;
-        let result = src.split_to(report.src_used);
 
-        Ok(Some(result.into()))
+        let mut result = src.split_to(report.src_used);
+        result.truncate(report.dst_used);
+
+        Ok(Some(result.freeze()))
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    use futures::StreamExt;
+    use proptest::prelude::*;
+    use tokio_util::codec::{
+        FramedRead,
+        FramedWrite,
+    };
+
+    async fn assert_encode_equals(
+        input: impl IntoIterator<Item = impl AsRef<[u8]>>,
+        expect: impl IntoIterator<Item = u8>,
+    ) -> eyre::Result<()> {
+        let mut writer = FramedWrite::new(vec![], CobsCodec);
+
+        futures::stream::iter(input.into_iter().map(|x| Ok(x.as_ref().to_vec())))
+            .forward(&mut writer)
+            .await?;
+
+        let expect = expect.into_iter().collect::<Vec<_>>();
+
+        assert_eq!(expect, writer.into_inner());
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn encode_test() -> eyre::Result<()> {
+        assert_encode_equals(&[&[0]], vec![1, 1]).await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn decode_test() -> eyre::Result<()> {
+        let input = vec![1, 1, 0, 0];
+        let reader = FramedRead::new(&input[..], CobsCodec);
+
+        // let mut result = reader.collect::<Vec<Result<Bytes, _>>>().await;
+        let mut result: Vec<eyre::Result<Bytes>> = vec![];
+
+        let first = result.pop().unwrap()?;
+        assert_eq!(&[0, 3], first.as_ref());
+
+        Ok(())
+    }
+
+    proptest! {
+        #[test]
+        fn test_enc_dec(input in any::<Vec<u8>>()) {
+
+        }
     }
 }

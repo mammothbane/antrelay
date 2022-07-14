@@ -220,30 +220,40 @@ mod test {
         assert_decode(AllDelimiterCodec::new(&[0, 1], true), vec![0, 1], vec![vec![]]).await
     }
 
+    #[tokio::test]
+    async fn test_decode_proptest_repeated() -> eyre::Result<()> {
+        assert_decode(AllDelimiterCodec::new(&[12, 12], false), vec![12], vec![vec![0]]).await
+    }
+
     proptest! {
         #[test]
-        fn test_exclusive_prop(delim in any::<Vec<u8>>(), vs in any::<Vec<Vec<u8>>>()) {
+        fn test_exclusive_prop(delim in any::<Vec<u8>>(), expect in any::<Vec<Vec<u8>>>()) {
             prop_assume!(delim.len() != 0);
-            prop_assume!(vs.iter().all(|x| x.windows(delim.len()).all(|w| w != delim)));
 
-            let test = vs.clone().into_iter().interleave_shortest(std::iter::repeat(delim.clone())).flatten().collect::<Vec<u8>>();
+            let base_flatten = expect.iter().flatten().cloned().collect::<Vec<u8>>();
+            prop_assume!(base_flatten.windows(delim.len()).all(|w| !delim.starts_with(w)));
+
+            let test = expect.clone().into_iter().interleave_shortest(std::iter::repeat(delim.clone())).flatten().collect::<Vec<u8>>();
 
             tokio::runtime::Builder::new_current_thread().build().unwrap().block_on(async move {
                 assert_decode(
                     AllDelimiterCodec::new(&delim, false),
                     test,
-                    vs,
+                    expect,
                 )
                 .await
             }).unwrap();
         }
 
         #[test]
-        fn test_inclusive_prop(delim in any::<Vec<u8>>(), vs in any::<Vec<Vec<u8>>>()) {
+        fn test_inclusive_prop(delim in any::<Vec<u8>>(), expect in any::<Vec<Vec<u8>>>()) {
             prop_assume!(delim.len() != 0);
-            prop_assume!(vs.iter().all(|x| x.windows(delim.len()).all(|w| w != delim)));
+            prop_assume!(expect.iter().all(|x| x.windows(delim.len()).all(|w| !delim.starts_with(w))));
 
-            let chunks = std::iter::repeat(delim.clone()).interleave_shortest(vs.clone().into_iter()).chunks(2);
+            let base_flatten = expect.iter().flatten().cloned().collect::<Vec<u8>>();
+            prop_assume!(base_flatten.windows(delim.len()).all(|w| w != delim));
+
+            let chunks = std::iter::repeat(delim.clone()).interleave_shortest(expect.clone().into_iter()).chunks(2);
 
             let expected = chunks.into_iter().map(|pair| pair.flatten().collect::<Vec<_>>()).collect::<Vec<_>>();
             let test = expected.clone().into_iter().flatten().collect::<Vec<u8>>();
