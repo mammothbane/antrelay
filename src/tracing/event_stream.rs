@@ -1,5 +1,9 @@
 use std::hash::Hash;
 
+use actix_broker::{
+    ArbiterBroker,
+    Broker,
+};
 use tracing::{
     span::Record,
     Id,
@@ -18,8 +22,11 @@ use crate::tracing::{
     Values,
 };
 
-#[derive(Clone, Debug, derive_more::Display, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Clone, Debug, derive_more::Display, serde::Serialize, serde::Deserialize, actix::Message,
+)]
 #[display(fmt = "[{}] {} (values: {:?})", ty, "self.message()", args)]
+#[rtype(response = "()")]
 pub struct Event {
     pub args: Values,
     pub ty:   EventType,
@@ -49,15 +56,6 @@ pub enum EventType {
     SpanClose,
 }
 
-pub struct EventStream(smol::channel::Sender<Event>);
-
-impl EventStream {
-    #[inline]
-    pub fn new(stream: smol::channel::Sender<Event>) -> Self {
-        Self(stream)
-    }
-}
-
 macro_rules! record_span {
     ($name:ident, $ty:expr) => {
         record_span!($name, &::tracing::Id, $ty);
@@ -68,16 +66,17 @@ macro_rules! record_span {
             let _: Option<_> = try {
                 let values = ctx.span(&id)?.extensions().get::<$crate::tracing::Values>()?.clone();
 
-                self.0
-                    .try_send(Event {
-                        args: values,
-                        ty:   $ty,
-                    })
-                    .unwrap()
+                ::actix_broker::Broker::<::actix_broker::ArbiterBroker>::issue_async(Event {
+                    args: values,
+                    ty:   $ty,
+                });
             };
         }
     };
 }
+
+#[derive(Default)]
+pub struct EventStream;
 
 impl<S> Layer<S> for EventStream
 where
@@ -112,11 +111,9 @@ where
     }
 
     fn on_event(&self, event: &tracing::Event<'_>, _ctx: Context<'_, S>) {
-        if let Err(e) = self.0.try_send(Event {
+        Broker::<ArbiterBroker>::issue_async(Event {
             args: event.values(),
             ty:   EventType::Event,
-        }) {
-            eprintln!("failed to send event: {}", e);
-        }
+        });
     }
 }

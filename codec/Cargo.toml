@@ -1,0 +1,22 @@
+[package]
+name = "antrelay-codec"
+authors = ["Nathan Perry <np@nathanperry.dev>"]
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+cobs = "0.2"
+tokio-util = { version = "0.7", features = ["codec"] }
+bytes = "1.1"
+aho-corasick = "0.7"
+nonempty = "0.8"
+thiserror = "1.0"
+packed_struct = "0.10"
+
+[dev-dependencies]
+eyre = "0.6"
+tokio = { version = "1.20", features = ["macros", "rt"] }
+tokio-stream = "0.1"
+futures = "0.3"
+proptest = "1.0"
+itertools = "0.10"

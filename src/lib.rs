@@ -10,6 +10,8 @@
 #![feature(backtrace)]
 #![deny(unsafe_code)]
 
+extern crate core;
+
 mod mission_epoch;
 
 pub mod build;

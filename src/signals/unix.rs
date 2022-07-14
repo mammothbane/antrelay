@@ -1,9 +1,12 @@
 use actix::{
+    prelude::*,
     Actor,
     Addr,
     ArbiterHandle,
+    AsyncContext,
     Context,
     Running,
+    Supervised,
 };
 use actix_broker::{
     ArbiterBroker,
@@ -11,6 +14,11 @@ use actix_broker::{
     BrokerIssue,
 };
 use signal_hook::consts::*;
+use tokio::signal::unix::{
+    signal,
+    SignalKind,
+};
+use tokio_stream::StreamExt;
 
 #[derive(Default)]
 pub struct UnixSignal(Option<tokio::task::JoinHandle<()>>);
@@ -18,17 +26,26 @@ pub struct UnixSignal(Option<tokio::task::JoinHandle<()>>);
 impl Actor for UnixSignal {
     type Context = Context<Self>;
 
-    fn started(&mut self, _ctx: &mut Context<Self>) {
-        self.0 = Some(actix::spawn(async move {
-            let mut signals = signal_hook_tokio::Signals::new(&[SIGTERM, SIGINT]).unwrap();
+    fn started(&mut self, ctx: &mut Context<Self>) {
+        let sigstream = try {
+            let ints = signal(SignalKind::interrupt())?.map(|_| ());
+            let terms = signal(SignalKind::interrupt())?.map(|_| ());
 
-            signals.next().await;
+            ints.merge(terms)
+        }
+        .unwrap();
 
-            Broker::<ArbiterBroker>::issue_async(crate::signals::Term);
-        }));
-    }
-
-    fn stopping(&mut self, _ctx: &mut Self::Context) -> Running {
-        self.0.and_then(|handle| handle.abort());
+        ctx.spawn(async move {
+            sigstream
+                .for_each(|_| async {
+                    Broker::<ArbiterBroker>::issue_async(crate::signals::Term);
+                })
+                .await;
+        })
+        .expect("spawning signal handler");
     }
 }
+
+impl Supervised for UnixSignal {}
+
+impl SystemService for UnixSignal {}

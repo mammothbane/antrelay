@@ -12,7 +12,6 @@ use smol::{
 use tap::Pipe;
 
 use crate::{
-    io::CommandSequencer,
     message::{
         header::{
             Event,

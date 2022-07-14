@@ -40,7 +40,7 @@ dependencies = [
  "futures-util",
  "log",
  "once_cell",
- "parking_lot 0.12.1",
+ "parking_lot",
  "pin-project-lite",
  "smallvec",
  "tokio",
@@ -129,20 +129,18 @@ version = "0.1.0"
 dependencies = [
  "actix",
  "actix-broker",
+ "aho-corasick",
  "anyhow",
- "async-broadcast",
- "async-compat",
- "async-std",
  "async-trait",
  "backoff",
  "bincode",
  "brotli",
  "byteorder",
+ "bytes",
  "cfg-if",
  "chrono",
  "cobs",
  "crc",
- "ctrlc",
  "dashmap",
  "derive_more",
  "either",
@@ -151,7 +149,7 @@ dependencies = [
  "futures",
  "hex",
  "lazy_static",
- "libloading",
+ "nonempty",
  "num-traits",
  "once_cell",
  "packed_struct",
@@ -163,16 +161,16 @@ dependencies = [
  "serde_json",
  "serde_repr",
  "shlex",
- "signal-hook",
- "signal-hook-tokio",
  "sluice",
  "smallvec",
- "smol",
  "stream-cancel",
  "structopt",
  "tap",
+ "thiserror",
  "tokio",
  "tokio-serial",
+ "tokio-stream",
+ "tokio-util",
  "tracing",
  "tracing-log",
  "tracing-subscriber",
@@ -181,32 +179,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "antrelay-codec"
+version = "0.1.0"
+dependencies = [
+ "aho-corasick",
+ "bytes",
+ "cobs",
+ "eyre",
+ "futures",
+ "itertools",
+ "nonempty",
+ "packed_struct",
+ "proptest",
+ "thiserror",
+ "tokio",
+ "tokio-stream",
+ "tokio-util",
+]
+
+[[package]]
 name = "anyhow"
 version = "1.0.57"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "08f9b8508dccb7687a1d6c4ce66b2b0ecef467c94667de27d8d7fe1f8d2a9cdc"
-
-[[package]]
-name = "async-attributes"
-version = "1.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a3203e79f4dd9bdda415ed03cf14dae5a2bf775c683a00f94e9cd1faf0f596e5"
-dependencies = [
- "quote",
- "syn",
-]
-
-[[package]]
-name = "async-broadcast"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1bbd92a9bd0e9c1298118ecf8a2f825e86b12c3ec9e411573e34aaf3a0c03cdd"
-dependencies = [
- "easy-parallel",
- "event-listener",
- "futures-core",
- "parking_lot 0.11.2",
-]
 
 [[package]]
 name = "async-channel"
@@ -217,19 +212,6 @@ dependencies = [
  "concurrent-queue",
  "event-listener",
  "futures-core",
-]
-
-[[package]]
-name = "async-compat"
-version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9b48b4ff0c2026db683dea961cd8ea874737f56cffca86fa84415eaddc51c00d"
-dependencies = [
- "futures-core",
- "futures-io",
- "once_cell",
- "pin-project-lite",
- "tokio",
 ]
 
 [[package]]
@@ -244,17 +226,6 @@ dependencies = [
  "futures-lite",
  "once_cell",
  "slab",
-]
-
-[[package]]
-name = "async-fs"
-version = "1.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8b3ca4f8ff117c37c278a2f7415ce9be55560b846b5bc4412aaa5d29c1c3dae2"
-dependencies = [
- "async-lock",
- "blocking",
- "futures-lite",
 ]
 
 [[package]]
@@ -311,40 +282,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "async-net"
-version = "1.6.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5373304df79b9b4395068fb080369ec7178608827306ce4d081cba51cac551df"
-dependencies = [
- "async-io",
- "blocking",
- "futures-lite",
-]
-
-[[package]]
-name = "async-process"
-version = "1.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cf2c06e30a24e8c78a3987d07f0930edf76ef35e027e7bdb063fccafdad1f60c"
-dependencies = [
- "async-io",
- "blocking",
- "cfg-if",
- "event-listener",
- "futures-lite",
- "libc",
- "once_cell",
- "signal-hook",
- "winapi",
-]
-
-[[package]]
 name = "async-std"
 version = "1.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "52580991739c5cdb36cde8b2a516371c0a3b70dda36d916cc08b82372916808c"
 dependencies = [
- "async-attributes",
  "async-channel",
  "async-global-executor",
  "async-io",
@@ -566,9 +508,9 @@ dependencies = [
 
 [[package]]
 name = "cobs"
-version = "0.1.4"
+version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c44be444fc7959957b0f331d596bafcfbbe30cbdf41665d1c40c68eda24137f6"
+checksum = "67ba02a97a2bd10f4b59b25c7973101c79642302776489e030cd13cdab09ed15"
 
 [[package]]
 name = "concurrent-queue"
@@ -637,7 +579,7 @@ dependencies = [
  "futures-core",
  "libc",
  "mio",
- "parking_lot 0.12.1",
+ "parking_lot",
  "signal-hook",
  "signal-hook-mio",
  "winapi",
@@ -663,16 +605,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ctrlc"
-version = "3.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b37feaa84e6861e00a1f5e5aa8da3ee56d605c9992d33e082786754828e20865"
-dependencies = [
- "nix 0.24.1",
- "winapi",
-]
-
-[[package]]
 name = "dashmap"
 version = "5.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -681,7 +613,7 @@ dependencies = [
  "cfg-if",
  "hashbrown",
  "lock_api",
- "parking_lot_core 0.9.3",
+ "parking_lot_core",
 ]
 
 [[package]]
@@ -696,12 +628,6 @@ dependencies = [
  "rustc_version",
  "syn",
 ]
-
-[[package]]
-name = "easy-parallel"
-version = "3.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6907e25393cdcc1f4f3f513d9aac1e840eb1cc341a0fccb01171f7d14d10b946"
 
 [[package]]
 name = "either"
@@ -985,6 +911,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "itertools"
+version = "0.10.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a9a9d19fa1e79b6215ff29b9d6880b706147f16e9b1dbb1e4e5947b5b02bc5e3"
+dependencies = [
+ "either",
+]
+
+[[package]]
 name = "itoa"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1039,16 +974,6 @@ dependencies = [
  "libc",
  "libz-sys",
  "pkg-config",
-]
-
-[[package]]
-name = "libloading"
-version = "0.7.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "efbc0f03f9a775e9f6aed295c6a1ba2253c5757a9e03d55c6caa46a681abcddd"
-dependencies = [
- "cfg-if",
- "winapi",
 ]
 
 [[package]]
@@ -1151,7 +1076,7 @@ checksum = "531e0f6dc55a5aa7b8d320407c5c4ced464e23815c60f6a1e6d9e225d2b45905"
 dependencies = [
  "log",
  "mio",
- "nix 0.23.1",
+ "nix",
  "serialport",
  "winapi",
 ]
@@ -1170,15 +1095,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "nix"
-version = "0.24.1"
+name = "nonempty"
+version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8f17df307904acd05aa8e32e97bb20f2a0df1728bbc2d771ae8f9a90463441e9"
-dependencies = [
- "bitflags",
- "cfg-if",
- "libc",
-]
+checksum = "09f1f8e5676e1a1f2ee8b21f38238e1243c827531c9435624c7bfb305102cee4"
 
 [[package]]
 name = "ntapi"
@@ -1255,37 +1175,12 @@ checksum = "427c3892f9e783d91cc128285287e70a59e206ca452770ece88a76f7a3eddd72"
 
 [[package]]
 name = "parking_lot"
-version = "0.11.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7d17b78036a60663b797adeaee46f5c9dfebb86948d1255007a1d6be0271ff99"
-dependencies = [
- "instant",
- "lock_api",
- "parking_lot_core 0.8.5",
-]
-
-[[package]]
-name = "parking_lot"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3742b2c103b9f06bc9fff0a37ff4912935851bee6d36f3c02bcc755bcfec228f"
 dependencies = [
  "lock_api",
- "parking_lot_core 0.9.3",
-]
-
-[[package]]
-name = "parking_lot_core"
-version = "0.8.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d76e8e1493bcac0d2766c42737f34458f1c8c50c0d23bcb24ea953affb273216"
-dependencies = [
- "cfg-if",
- "instant",
- "libc",
- "redox_syscall",
- "smallvec",
- "winapi",
+ "parking_lot_core",
 ]
 
 [[package]]
@@ -1646,7 +1541,7 @@ dependencies = [
  "bitflags",
  "cfg-if",
  "mach 0.3.2",
- "nix 0.23.1",
+ "nix",
  "regex",
  "winapi",
 ]
@@ -1697,17 +1592,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "signal-hook-tokio"
-version = "0.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "213241f76fb1e37e27de3b6aa1b068a2c333233b59cca6634f634b80a27ecf1e"
-dependencies = [
- "libc",
- "signal-hook",
- "tokio",
-]
-
-[[package]]
 name = "slab"
 version = "0.4.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1729,24 +1613,6 @@ name = "smallvec"
 version = "1.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f2dd574626839106c320a323308629dcb1acfc96e32a8cba364ddc61ac23ee83"
-
-[[package]]
-name = "smol"
-version = "1.2.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "85cf3b5351f3e783c1d79ab5fc604eeed8b8ae9abd36b166e8b87a089efd85e4"
-dependencies = [
- "async-channel",
- "async-executor",
- "async-fs",
- "async-io",
- "async-lock",
- "async-net",
- "async-process",
- "blocking",
- "futures-lite",
- "once_cell",
-]
 
 [[package]]
 name = "socket2"
@@ -1859,7 +1725,7 @@ version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bee2d290fe0db0225026350bc1f0bd02b2daad43b09b56780e29e549effcd54a"
 dependencies = [
- "parking_lot 0.12.1",
+ "parking_lot",
  "pin-project",
 ]
 
@@ -1919,20 +1785,33 @@ checksum = "cda74da7e1a664f795bb1f8a87ec406fb89a02522cf6e50620d016add6dbbf5c"
 
 [[package]]
 name = "tokio"
-version = "1.19.2"
+version = "1.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c51a52ed6686dd62c320f9b89299e9dfb46f730c7a48e635c19f21d116cb1439"
+checksum = "57aec3cfa4c296db7255446efb4928a6be304b431a806216105542a67b6ca82e"
 dependencies = [
+ "autocfg",
  "bytes",
  "libc",
  "memchr",
  "mio",
  "once_cell",
- "parking_lot 0.12.1",
+ "parking_lot",
  "pin-project-lite",
  "signal-hook-registry",
  "socket2",
+ "tokio-macros",
  "winapi",
+]
+
+[[package]]
+name = "tokio-macros"
+version = "1.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9724f9a975fb987ef7a3cd9be0350edcbe130698af5b8f7a631e23d42d052484"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]
@@ -1945,6 +1824,17 @@ dependencies = [
  "futures",
  "log",
  "mio-serial",
+ "tokio",
+]
+
+[[package]]
+name = "tokio-stream"
+version = "0.1.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "df54d54117d6fdc4e4fea40fe1e4e566b3505700e148a6827e59b34b0d2600d9"
+dependencies = [
+ "futures-core",
+ "pin-project-lite",
  "tokio",
 ]
 
