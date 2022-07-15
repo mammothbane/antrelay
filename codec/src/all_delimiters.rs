@@ -14,7 +14,26 @@ use tokio_util::codec::{
     Encoder,
 };
 
-#[derive(Debug, Clone)]
+/// A codec that captures a single sequence of delimiters.
+/// It can operate in a mode where the delimiter is in fact part of the message ("inclusive" mode),
+/// or in which the messages are separated by the delimiter, which is not part of the output
+/// ("exclusive" mode).
+///
+/// This is a stateful codec.
+///
+/// ## Inclusive mode
+/// On start, the codec discards bytes until it reads the delimiter. Everything after the start of
+/// the delimiter, up to the start of the next one, is the message. EOF will also terminate a
+/// message.
+///
+/// The encoder expects each incoming message to start with the delimiter and will error if it is
+/// not present.
+///
+/// ## Exclusive mode
+/// Messages are strictly delimiter-terminated in this mode. Note that this means an EOF will *not*
+/// terminate a message -- each message must end with a delimiter. The message stream may start with
+/// a partial message if the codec started decoding in the middle of one.
+#[derive(Debug)]
 pub struct AllDelimiterCodec {
     inclusive: bool,
     delimiter: Bytes,
@@ -22,6 +41,7 @@ pub struct AllDelimiterCodec {
     ac: AhoCorasick,
 
     inclusive_seen_header: bool,
+    inclusive_terminated:  bool,
     search_from:           usize,
 }
 
@@ -38,6 +58,7 @@ impl AllDelimiterCodec {
             delimiter: Bytes::copy_from_slice(delimiter),
             ac,
             inclusive_seen_header: false,
+            inclusive_terminated: false,
             search_from: 0,
         }
     }
@@ -98,6 +119,22 @@ impl Decoder for AllDelimiterCodec {
     type Item = Bytes;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
+        eprintln!("hello? {:?}", src);
+
+        // loop serves 2 functions:
+        //      - aho_corasick finds the leftmost match, even a partial one. with delim [0x0, 0x0],
+        //        the string [0x1, 0x0, 0x1, 0x0, 0x0, 0x1, 0x0, 0x0] will result in a partial match
+        //        at position 1 first. note that there are two complete packets here. we want to
+        //        capture the first one, so we can't search backwards from the end of the string.
+        //        hence:
+        //          - if the match is complete, capture and return the packet (regardless of where
+        //              it occurs)
+        //          - if the match is partial and ends at the end of the string, stop looking
+        //          - if the match is partial and does not end at the end of the string, keep
+        //              looking, starting at the next position in the string after the start of the
+        //              match
+        //          - if no match, stop looking
+
         loop {
             return match self.ac.find(&src[self.search_from..]) {
                 Some(mat) if mat.end() - mat.start() == self.delimiter.len() => {
@@ -113,28 +150,44 @@ impl Decoder for AllDelimiterCodec {
 
                     Ok(Some(self.make_decoded(result)))
                 },
-                Some(mat) => {
-                    if self.search_from + mat.end() == src.len() {
-                        return Ok(None);
-                    }
 
-                    self.search_from += mat.end() - mat.start();
+                Some(mat) if self.search_from + mat.end() == src.len() => {
+                    self.search_from += mat.start();
+                    Ok(None)
+                },
+
+                Some(mat) => {
+                    self.search_from += mat.start() + 1;
                     continue;
                 },
-                None => Ok(None),
+
+                None => {
+                    self.search_from = src.len();
+                    Ok(None)
+                },
             };
         }
     }
 
     fn decode_eof(&mut self, buf: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
+        if !self.inclusive {
+            return self.decode(buf);
+        }
+
+        if buf.len() == 0 {
+            return Ok(if self.inclusive_seen_header && !self.inclusive_terminated {
+                self.inclusive_terminated = true;
+                Some(self.make_decoded(BytesMut::new()))
+            } else {
+                None
+            });
+        }
+
         if let result @ Some(_) = self.decode(buf)? {
             return Ok(result);
         }
 
-        if buf.len() == 0 {
-            return Ok(None);
-        }
-
+        self.inclusive_terminated = true;
         self.search_from = 0;
         Ok(Some(self.make_decoded(buf.split())))
     }
@@ -165,6 +218,10 @@ mod test {
             .collect::<Vec<_>>()
             .await;
 
+        let expect = expect.into_iter().collect::<Vec<_>>();
+
+        assert_eq!(expect.len(), results.len());
+
         for (got, expect) in results.into_iter().zip(expect) {
             assert_eq!(expect.as_ref(), &got?[..]);
         }
@@ -177,7 +234,6 @@ mod test {
         assert_decode(AllDelimiterCodec::new(&[0], false), vec![0, 1, 2, 3, 0, 4, 5, 6], vec![
             vec![],
             vec![1, 2, 3],
-            vec![4, 5, 6],
         ])
         .await
     }
@@ -196,7 +252,7 @@ mod test {
         assert_decode(
             AllDelimiterCodec::new(&[0, 1], false),
             vec![0, 1, 1, 2, 3, 0, 1, 4, 5, 6],
-            vec![vec![], vec![1, 2, 3], vec![4, 5, 6]],
+            vec![vec![], vec![1, 2, 3]],
         )
         .await
     }
@@ -217,23 +273,31 @@ mod test {
 
     #[tokio::test]
     async fn test_inclusive_decode_multi_proptest_1() -> eyre::Result<()> {
-        assert_decode(AllDelimiterCodec::new(&[0, 1], true), vec![0, 1], vec![vec![]]).await
+        assert_decode(AllDelimiterCodec::new(&[0, 1], true), vec![0, 1], vec![vec![0, 1]]).await
     }
 
     #[tokio::test]
     async fn test_decode_proptest_repeated() -> eyre::Result<()> {
-        assert_decode(AllDelimiterCodec::new(&[12, 12], false), vec![12], vec![vec![0]]).await
+        assert_decode(AllDelimiterCodec::new(&[12, 12], false), vec![12], vec![] as Vec<Vec<u8>>)
+            .await
+    }
+
+    #[tokio::test]
+    async fn test_inclusive_decode_proptest_empty() -> eyre::Result<()> {
+        assert_decode(AllDelimiterCodec::new(&[0, 1], true), vec![0, 1], vec![vec![0, 1]]).await
     }
 
     proptest! {
         #[test]
         fn test_exclusive_prop(delim in any::<Vec<u8>>(), expect in any::<Vec<Vec<u8>>>()) {
             prop_assume!(delim.len() != 0);
+            prop_assume!(expect.iter().all(|x| x.windows(delim.len()).all(|w| w != delim)));
 
-            let base_flatten = expect.iter().flatten().cloned().collect::<Vec<u8>>();
-            prop_assume!(base_flatten.windows(delim.len()).all(|w| !delim.starts_with(w)));
-
-            let test = expect.clone().into_iter().interleave_shortest(std::iter::repeat(delim.clone())).flatten().collect::<Vec<u8>>();
+            let test = if expect.len() == 0 {
+                vec![]
+            } else {
+                expect.clone().into_iter().interleave_shortest(std::iter::repeat(delim.clone())).flatten().collect::<Vec<u8>>()
+            };
 
             tokio::runtime::Builder::new_current_thread().build().unwrap().block_on(async move {
                 assert_decode(
@@ -249,9 +313,6 @@ mod test {
         fn test_inclusive_prop(delim in any::<Vec<u8>>(), expect in any::<Vec<Vec<u8>>>()) {
             prop_assume!(delim.len() != 0);
             prop_assume!(expect.iter().all(|x| x.windows(delim.len()).all(|w| !delim.starts_with(w))));
-
-            let base_flatten = expect.iter().flatten().cloned().collect::<Vec<u8>>();
-            prop_assume!(base_flatten.windows(delim.len()).all(|w| w != delim));
 
             let chunks = std::iter::repeat(delim.clone()).interleave_shortest(expect.clone().into_iter()).chunks(2);
 
