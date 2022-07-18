@@ -30,6 +30,14 @@ pub struct UniqueId {
 
 #[derive(Debug, Hash, PartialEq, Eq)]
 pub struct RTParams {
-    pub(crate) time: MissionEpoch,
-    pub(crate) seq:  u8,
+    pub time: MissionEpoch,
+    pub seq:  u8,
+}
+
+#[inline]
+pub fn new<T>(header: Header, t: T) -> Message<T, StandardCRC> {
+    Message::new(HeaderPacket {
+        header,
+        payload: t,
+    })
 }

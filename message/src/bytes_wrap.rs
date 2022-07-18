@@ -8,9 +8,7 @@ use packed_struct::{
     PackingResult,
 };
 
-#[derive(
-    Debug, Clone, PartialEq, Eq, Hash, derive_more::From, derive_more::Into, derive_more::AsRef,
-)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, derive_more::Into, derive_more::AsRef)]
 pub struct BytesWrap(Bytes);
 
 impl PackedStructSlice for BytesWrap {
@@ -27,5 +25,17 @@ impl PackedStructSlice for BytesWrap {
         let slf = opt_self.ok_or(PackingError::InstanceRequiredForSize)?;
 
         Ok(slf.0.len())
+    }
+}
+
+impl<T> From<T> for BytesWrap
+where
+    T: AsRef<[u8]>,
+{
+    fn from(t: T) -> Self {
+        let mut m = BytesMut::new();
+        m.copy_from_slice(t.as_ref());
+
+        BytesWrap(m.freeze())
     }
 }

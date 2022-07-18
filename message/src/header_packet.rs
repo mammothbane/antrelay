@@ -42,16 +42,6 @@ where
     }
 }
 
-impl<Header, T, CRC> HeaderPacket<Header, WithCRC<T, CRC>> {
-    #[inline]
-    pub fn new(header: Header, t: T) -> Self {
-        HeaderPacket {
-            header,
-            payload: WithCRC::new(t),
-        }
-    }
-}
-
 impl<Header, Payload> PackedStructSlice for HeaderPacket<Header, Payload>
 where
     Header: PackedStructInfo + PackedStructSlice,

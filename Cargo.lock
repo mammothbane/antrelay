@@ -242,6 +242,7 @@ dependencies = [
  "antrelay-util",
  "bytes",
  "derive_more",
+ "fnv",
  "futures",
  "once_cell",
  "packed_struct",
