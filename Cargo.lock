@@ -183,6 +183,7 @@ name = "antrelay-codec"
 version = "0.1.0"
 dependencies = [
  "aho-corasick",
+ "async-compat",
  "bytes",
  "cobs",
  "eyre",
@@ -191,6 +192,7 @@ dependencies = [
  "nonempty",
  "packed_struct",
  "proptest",
+ "sluice",
  "thiserror",
  "tokio",
  "tokio-stream",
@@ -212,6 +214,19 @@ dependencies = [
  "concurrent-queue",
  "event-listener",
  "futures-core",
+]
+
+[[package]]
+name = "async-compat"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9b48b4ff0c2026db683dea961cd8ea874737f56cffca86fa84415eaddc51c00d"
+dependencies = [
+ "futures-core",
+ "futures-io",
+ "once_cell",
+ "pin-project-lite",
+ "tokio",
 ]
 
 [[package]]
