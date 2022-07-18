@@ -32,14 +32,14 @@ pub struct Header {
     pub timestamp:   MissionEpoch,
     pub seq:         u8,
     #[packed_field(size_bytes = "1")]
-    pub ty:          RequestMeta,
+    pub ty:          MessageType,
 }
 
 impl Header {
     #[inline]
     pub fn log(env: RTParams, kind: Event) -> Self {
         let mut result = Header::downlink(env, kind);
-        result.ty = RequestMeta::PONG;
+        result.ty = MessageType::PONG;
 
         result
     }
@@ -53,7 +53,7 @@ impl Header {
             timestamp: env.time,
             seq:       env.seq,
 
-            ty: RequestMeta {
+            ty: MessageType {
                 disposition:         Disposition::Command,
                 request_was_invalid: false,
                 server:              Server::Frontend,
@@ -62,53 +62,19 @@ impl Header {
         }
     }
 
-    pub fn fe_command(env: RTParams, kind: Event) -> Self {
-        Header {
+    pub fn command(env: RTParams, dest: Destination, server: Server, event: Event) -> Self {
+        Self {
             magic:       Default::default(),
-            destination: Destination::Frontend,
+            destination: dest,
 
             timestamp: env.time,
             seq:       env.seq,
 
-            ty: RequestMeta {
-                disposition:         Disposition::Command,
+            ty: MessageType {
+                disposition: Disposition::Command,
                 request_was_invalid: false,
-                server:              Server::Frontend,
-                event:               kind,
-            },
-        }
-    }
-
-    pub fn cs_command(env: RTParams, kind: Event) -> Self {
-        Header {
-            magic:       Default::default(),
-            destination: Destination::CentralStation,
-
-            timestamp: env.time,
-            seq:       env.seq,
-
-            ty: RequestMeta {
-                disposition:         Disposition::Command,
-                request_was_invalid: false,
-                server:              Server::CentralStation,
-                event:               kind,
-            },
-        }
-    }
-
-    pub fn ant_command(env: RTParams, kind: Event) -> Self {
-        Header {
-            magic:       Default::default(),
-            destination: Destination::Ant,
-
-            timestamp: env.time,
-            seq:       env.seq,
-
-            ty: RequestMeta {
-                disposition:         Disposition::Command,
-                request_was_invalid: false,
-                server:              Server::Ant,
-                event:               kind,
+                server,
+                event,
             },
         }
     }
@@ -156,7 +122,7 @@ pub enum Destination {
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PackedStruct)]
 #[packed_struct(bit_numbering = "msb0", size_bytes = "1")]
-pub struct RequestMeta {
+pub struct MessageType {
     #[packed_field(size_bits = "1", ty = "enum")]
     pub disposition: Disposition,
 
@@ -170,7 +136,7 @@ pub struct RequestMeta {
     pub event: Event,
 }
 
-impl RequestMeta {
+impl MessageType {
     pub const PONG: Self = Self {
         disposition:         Disposition::Ack,
         request_was_invalid: false,
@@ -272,8 +238,8 @@ mod test {
     }
 
     prop_compose! {
-        fn type_strategy()(disposition in direction_strategy(), request_was_invalid in any::<bool>(), server in server_strategy(), event in any::<u8>()) -> RequestMeta {
-            RequestMeta {
+        fn type_strategy()(disposition in direction_strategy(), request_was_invalid in any::<bool>(), server in server_strategy(), event in any::<u8>()) -> MessageType {
+            MessageType {
                 disposition,
                 request_was_invalid,
                 server,
