@@ -5,7 +5,6 @@ use actix::{
     Context,
     Handler,
     Message,
-    Running,
     Supervised,
 };
 use actix_broker::{
@@ -42,12 +41,12 @@ pub struct Downlink(pub Bytes);
 
 type IO = (Box<dyn AsyncRead>, Box<dyn AsyncWrite>);
 
-pub struct SerialIO {
+pub struct RawIO {
     make_io: Box<dyn Fn() -> BoxFuture<Option<IO>>>,
     tx:      Option<mpsc::UnboundedSender<Bytes>>,
 }
 
-impl SerialIO {
+impl RawIO {
     pub fn new(make_io: Box<dyn Fn() -> BoxFuture<Option<IO>>>) -> Self {
         Self {
             make_io,
@@ -56,7 +55,7 @@ impl SerialIO {
     }
 }
 
-impl Actor for SerialIO {
+impl Actor for RawIO {
     type Context = Context<Self>;
 
     fn started(&mut self, ctx: &mut Self::Context) {
@@ -86,7 +85,7 @@ impl Actor for SerialIO {
     }
 }
 
-impl Handler<Uplink> for SerialIO {
+impl Handler<Uplink> for RawIO {
     type Result = ();
 
     fn handle(&mut self, msg: Uplink, _ctx: &mut Self::Context) -> Self::Result {
@@ -103,11 +102,11 @@ impl Handler<Uplink> for SerialIO {
     }
 }
 
-impl Supervised for SerialIO
+impl Supervised for RawIO
 where
     Self: Actor,
 {
     fn restarting(&mut self, _ctx: &mut <Self as Actor>::Context) {
-        self.write = None;
+        self.tx = None;
     }
 }

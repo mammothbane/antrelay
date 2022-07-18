@@ -1,6 +1,6 @@
 use actix::prelude::*;
 
-use util::MissionEpoch;
+use message::MissionEpoch;
 
 #[derive(Message)]
 #[rtype = "MissionEpoch"]

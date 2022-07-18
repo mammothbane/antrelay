@@ -1,0 +1,5 @@
+[package]
+name = "antrelay-net"
+authors = ["Nathan Perry <np@nathanperry.dev>"]
+version = "0.1.0"
+edition = "2021"

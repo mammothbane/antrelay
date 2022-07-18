@@ -220,6 +220,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "antrelay-net"
+version = "0.1.0"
+
+[[package]]
 name = "antrelay-runtime"
 version = "0.1.0"
 dependencies = [
@@ -232,6 +236,7 @@ dependencies = [
  "derive_more",
  "futures",
  "once_cell",
+ "packed_struct",
  "tokio",
  "tracing",
 ]

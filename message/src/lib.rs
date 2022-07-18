@@ -15,8 +15,6 @@ pub use header_packet::HeaderPacket;
 pub use magic_value::MagicValue;
 pub use mission_epoch::MissionEpoch;
 
-pub type OpaqueBytes = Vec<u8>;
-
 impl_checksum!(pub StandardCRC, u8, ::crc::CRC_8_SMBUS);
 
 pub type WithCRC<T, CRC = StandardCRC> = crc::WithCRC<T, CRC>;
