@@ -2,7 +2,7 @@
 #![feature(const_convert)]
 
 pub mod checksum;
-pub mod crc_wrap;
+pub mod crc;
 pub mod header;
 mod header_packet;
 mod magic_value;
@@ -17,10 +17,10 @@ pub use mission_epoch::MissionEpoch;
 
 pub type OpaqueBytes = Vec<u8>;
 
-impl_checksum!(pub StandardCRC, u8, crc::CRC_8_SMBUS);
+impl_checksum!(pub StandardCRC, u8, ::crc::CRC_8_SMBUS);
 
-pub type CRCWrap<T, CRC = StandardCRC> = crc_wrap::CRCWrap<T, CRC>;
-pub type Message<T, CRC = StandardCRC> = CRCWrap<HeaderPacket<Header, T>, CRC>;
+pub type WithCRC<T, CRC = StandardCRC> = crc::WithCRC<T, CRC>;
+pub type Message<T, CRC = StandardCRC> = WithCRC<HeaderPacket<Header, T>, CRC>;
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct UniqueId {

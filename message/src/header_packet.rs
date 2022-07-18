@@ -4,7 +4,7 @@ use packed_struct::{
     PackingResult,
 };
 
-use crate::CRCWrap;
+use crate::WithCRC;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, derive_more::Display)]
 #[display(fmt = "{}/{:?}", header, payload)]
@@ -42,12 +42,12 @@ where
     }
 }
 
-impl<Header, T, CRC> HeaderPacket<Header, CRCWrap<T, CRC>> {
+impl<Header, T, CRC> HeaderPacket<Header, WithCRC<T, CRC>> {
     #[inline]
     pub fn new(header: Header, t: T) -> Self {
         HeaderPacket {
             header,
-            payload: CRCWrap::new(t),
+            payload: WithCRC::new(t),
         }
     }
 }

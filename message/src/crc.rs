@@ -17,14 +17,14 @@ use crate::{
 
 #[derive(Debug, Clone, PartialEq, derive_more::Display)]
 #[display(fmt = "{:?}", val)]
-pub struct CRCWrap<T, CRC> {
+pub struct WithCRC<T, CRC> {
     val:            T,
     cache_bytes:    OnceCell<PackingResult<Vec<u8>>>,
     cache_checksum: OnceCell<PackingResult<checksum::Array>>,
     _phantom:       PhantomData<CRC>,
 }
 
-impl<T, CRC> CRCWrap<T, CRC> {
+impl<T, CRC> WithCRC<T, CRC> {
     #[inline]
     pub fn new(data: T) -> Self {
         Self {
@@ -41,7 +41,7 @@ impl<T, CRC> CRCWrap<T, CRC> {
     }
 }
 
-impl<T, CRC> CRCWrap<T, CRC>
+impl<T, CRC> WithCRC<T, CRC>
 where
     CRC: Checksum,
 {
@@ -81,13 +81,13 @@ where
     }
 }
 
-impl<T, CRC> AsRef<T> for CRCWrap<T, CRC> {
+impl<T, CRC> AsRef<T> for WithCRC<T, CRC> {
     fn as_ref(&self) -> &T {
         &self.val
     }
 }
 
-impl<T, CRC> PackedStructSlice for CRCWrap<T, CRC>
+impl<T, CRC> PackedStructSlice for WithCRC<T, CRC>
 where
     T: PackedStructSlice,
     CRC: Checksum,
