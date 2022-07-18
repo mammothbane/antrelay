@@ -4,7 +4,7 @@ use std::{
     path::PathBuf,
 };
 
-use smol::net::unix::UnixDatagram;
+use tokio::net::UnixDatagram;
 
 use crate::net::{
     DatagramOps,

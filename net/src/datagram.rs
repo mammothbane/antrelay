@@ -1,10 +1,14 @@
-use smol::net::UdpSocket;
 use std::{
     io,
     net::{
         Shutdown,
         SocketAddr,
     },
+};
+
+use tokio::{
+    net::UdpSocket,
+    sync::mpsc,
 };
 
 #[async_trait::async_trait]
@@ -80,8 +84,8 @@ impl DatagramReceiver for UdpSocket {
 }
 
 #[async_trait::async_trait]
-impl DatagramSender for smol::channel::Sender<Vec<u8>> {
-    type Error = smol::channel::SendError<Vec<u8>>;
+impl DatagramSender for mpsc::Sender<Vec<u8>> {
+    type Error = mpsc::error::SendError<Vec<u8>>;
 
     async fn send(&self, packet: &[u8]) -> Result<usize, Self::Error> {
         self.send(packet.to_vec()).await?;
@@ -90,11 +94,16 @@ impl DatagramSender for smol::channel::Sender<Vec<u8>> {
 }
 
 #[async_trait::async_trait]
-impl DatagramReceiver for smol::channel::Receiver<Vec<u8>> {
-    type Error = smol::channel::RecvError;
+impl DatagramReceiver for tokio::sync::Mutex<mpsc::Receiver<Vec<u8>>> {
+    type Error = ();
 
     async fn recv(&self, packet: &mut [u8]) -> Result<usize, Self::Error> {
-        let result = self.recv().await?;
+        let result = {
+            let mut lck = self.lock().await;
+            lck.recv().await
+        }
+        .ok_or(())?;
+
         packet.copy_from_slice(&result[..]);
 
         Ok(result.len())

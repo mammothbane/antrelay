@@ -1,9 +1,12 @@
-use actix::prelude::*;
+use actix::{
+    prelude::*,
+    MessageResult,
+};
 
 use message::MissionEpoch;
 
 #[derive(Message)]
-#[rtype = "MissionEpoch"]
+#[rtype(result = "MissionEpoch")]
 pub struct Request;
 
 #[derive(Default)]
@@ -18,9 +21,9 @@ impl Supervised for TimeService {}
 impl SystemService for TimeService {}
 
 impl Handler<Request> for TimeService {
-    type Result = MissionEpoch;
+    type Result = MessageResult<Request>;
 
     fn handle(&mut self, _msg: Request, _ctx: &mut Self::Context) -> Self::Result {
-        MissionEpoch::now()
+        MessageResult(MissionEpoch::now())
     }
 }

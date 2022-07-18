@@ -1,6 +1,7 @@
 #![feature(const_trait_impl)]
 #![feature(const_convert)]
 
+mod bytes_wrap;
 pub mod checksum;
 pub mod crc;
 pub mod header;
@@ -9,6 +10,7 @@ mod magic_value;
 mod mission_epoch;
 pub mod payload;
 
+pub use bytes_wrap::BytesWrap;
 pub use checksum::Checksum;
 pub use header::Header;
 pub use header_packet::HeaderPacket;

@@ -4,7 +4,6 @@ authors = ["Nathan Perry <np@nathanperry.dev>"]
 version = "0.1.0"
 edition = "2021"
 
-
 [dependencies]
 vergen = "0.1"
 lazy_static = "1.4"

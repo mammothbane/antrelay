@@ -16,7 +16,7 @@ use tracing_subscriber::{
     Layer,
 };
 
-use crate::tracing::{
+use crate::{
     RetrieveValues,
     Value,
     Values,
@@ -64,7 +64,7 @@ macro_rules! record_span {
     ($name:ident, $idty:ty, $ty:expr) => {
         fn $name(&self, id: $idty, ctx: Context<'_, S>) {
             let _: Option<_> = try {
-                let values = ctx.span(&id)?.extensions().get::<$crate::tracing::Values>()?.clone();
+                let values = ctx.span(&id)?.extensions().get::<$crate::Values>()?.clone();
 
                 ::actix_broker::Broker::<::actix_broker::ArbiterBroker>::issue_async(Event {
                     args: values,

@@ -8,6 +8,7 @@ edition = "2021"
 antrelay-codec = { path = "../codec" }
 message = { path = "../message", package = "antrelay-message" }
 util = { path = "../util", package = "antrelay-util" }
+net = { path = "../net", package = "antrelay-net" }
 
 actix = "0.13"
 actix-broker = "0.4"
@@ -18,3 +19,4 @@ futures = "0.3"
 tracing = "0.1"
 derive_more = "0.99"
 packed_struct = "0.10"
+tokio-stream = "0.1"

@@ -1,3 +1,5 @@
+#![feature(try_blocks)]
+
 use std::collections::HashMap;
 
 mod event_stream;

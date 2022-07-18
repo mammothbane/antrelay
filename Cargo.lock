@@ -204,6 +204,7 @@ name = "antrelay-message"
 version = "0.1.0"
 dependencies = [
  "byteorder",
+ "bytes",
  "chrono",
  "crc",
  "derive_more",
@@ -222,6 +223,12 @@ dependencies = [
 [[package]]
 name = "antrelay-net"
 version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "lazy_static",
+ "tokio",
+ "tracing",
+]
 
 [[package]]
 name = "antrelay-runtime"
@@ -231,6 +238,7 @@ dependencies = [
  "actix-broker",
  "antrelay-codec",
  "antrelay-message",
+ "antrelay-net",
  "antrelay-util",
  "bytes",
  "derive_more",
@@ -238,7 +246,20 @@ dependencies = [
  "once_cell",
  "packed_struct",
  "tokio",
+ "tokio-stream",
  "tracing",
+]
+
+[[package]]
+name = "antrelay-tracing"
+version = "0.1.0"
+dependencies = [
+ "actix",
+ "actix-broker",
+ "derive_more",
+ "serde",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

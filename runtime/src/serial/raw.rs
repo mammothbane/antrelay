@@ -1,13 +1,17 @@
 use actix::{
-    Actor,
-    ActorContext,
+    fut,
+    fut::{
+        ActorFutureExt,
+        ActorStreamExt,
+    },
+    prelude::*,
     AsyncContext,
     Context,
     Handler,
     Message,
-    Supervised,
 };
 use actix_broker::{
+    BrokerIssue,
     BrokerSubscribe,
     SystemBroker,
 };
@@ -22,6 +26,7 @@ use bytes::Bytes;
 use futures::{
     future::BoxFuture,
     SinkExt,
+    StreamExt,
 };
 use tokio::{
     io::{
@@ -30,24 +35,25 @@ use tokio::{
     },
     sync::mpsc,
 };
+use tokio_stream::wrappers::UnboundedReceiverStream;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Message)]
 #[rtype(result = "()")]
-pub struct Uplink(pub Bytes);
+pub struct UpPacket(pub Bytes);
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Message)]
 #[rtype(result = "()")]
-pub struct Downlink(pub Bytes);
+pub struct DownPacket(pub Bytes);
 
-type IO = (Box<dyn AsyncRead>, Box<dyn AsyncWrite>);
+type IO = (Box<dyn AsyncRead + Unpin>, Box<dyn AsyncWrite + Unpin>);
 
 pub struct RawIO {
-    make_io: Box<dyn Fn() -> BoxFuture<Option<IO>>>,
+    make_io: Box<dyn Fn() -> BoxFuture<'static, Option<IO>>>,
     tx:      Option<mpsc::UnboundedSender<Bytes>>,
 }
 
 impl RawIO {
-    pub fn new(make_io: Box<dyn Fn() -> BoxFuture<Option<IO>>>) -> Self {
+    pub fn new(make_io: Box<dyn Fn() -> BoxFuture<'static, Option<IO>>>) -> Self {
         Self {
             make_io,
             tx: None,
@@ -59,40 +65,59 @@ impl Actor for RawIO {
     type Context = Context<Self>;
 
     fn started(&mut self, ctx: &mut Self::Context) {
-        let (r, w) = match ctx.wait(self.make_io()) {
-            Some(io) => io,
-            None => {
-                ctx.stop();
-                return;
+        ctx.wait(fut::wrap_future((self.make_io)()).map(
+            |result, a: &mut Self, ctx: &mut Context<Self>| {
+                let (r, w) = match result {
+                    Some(io) => io,
+                    None => {
+                        ctx.stop();
+                        return;
+                    },
+                };
+
+                let (tx, rx) = mpsc::unbounded_channel();
+                let framed_write = FramedWrite::new(w, CobsCodec);
+
+                ctx.spawn(fut::wrap_future(async move {
+                    let mut rx = UnboundedReceiverStream::new(rx).map(Ok);
+                    let mut framed_write = framed_write;
+
+                    framed_write.send_all(&mut rx).await.unwrap();
+                }));
+
+                a.tx = Some(tx);
+                a.subscribe_async::<SystemBroker, UpPacket>(ctx);
+
+                let framed_downlink = FramedRead::new(r, CobsCodec);
+
+                ctx.spawn(
+                    fut::wrap_stream(framed_downlink.map(|x| x.map(DownPacket)))
+                        .map(|x, a: &mut Self, ctx| {
+                            let pkt = match x {
+                                Ok(pkt) => pkt,
+                                Err(e) => {
+                                    tracing::error!(error = %e);
+                                    return;
+                                },
+                            };
+
+                            a.issue_sync::<SystemBroker, _>(pkt, ctx);
+                        })
+                        .finish(),
+                );
             },
-        };
-
-        let (tx, rx) = mpsc::unbounded_channel();
-
-        let framed_write = FramedWrite::new(w, CobsCodec);
-        ctx.spawn(async move {
-            let mut rx = rx.map(Ok);
-            let mut framed_write = framed_write;
-
-            framed_write.send_all(&mut rx).await.unwrap();
-        });
-
-        self.tx = Some(tx);
-        self.subscribe_async::<SystemBroker, Uplink>(ctx);
-
-        let framed_read = FramedRead::new(r, CobsCodec);
-        ctx.add_message_stream(framed_read.map(Downlink));
+        ));
     }
 }
 
-impl Handler<Uplink> for RawIO {
+impl Handler<UpPacket> for RawIO {
     type Result = ();
 
-    fn handle(&mut self, msg: Uplink, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: UpPacket, _ctx: &mut Self::Context) -> Self::Result {
         match self.tx {
             Some(ref tx) => {
                 if let Err(_e) = tx.send(msg.0) {
-                    tracing::error!("remote serial channel dropped");
+                    tracing::error!("trying to send serial uplink packet: remote channel dropped");
                 }
             },
             None => {
