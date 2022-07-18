@@ -6,6 +6,9 @@ edition = "2021"
 
 [dependencies]
 antrelay-codec = { path = "../codec" }
+antrelay-message = { path = "../message" }
+util = { path = "../util", package = "antrelay-util" }
+
 actix = "0.13"
 actix-broker = "0.4"
 bytes = "1.1"

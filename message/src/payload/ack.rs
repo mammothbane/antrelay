@@ -1,9 +1,9 @@
 use packed_struct::prelude::*;
 
 use crate::{
-    message,
-    message::UniqueId,
+    Header,
     MissionEpoch,
+    UniqueId,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PackedStruct)]
@@ -17,7 +17,7 @@ pub struct Ack {
 
 impl Ack {
     #[inline]
-    pub fn matches(&self, header: &message::Header) -> bool {
+    pub fn matches(&self, header: &Header) -> bool {
         self.unique_id() == header.unique_id()
     }
 

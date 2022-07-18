@@ -1,7 +1,7 @@
 use packed_struct::prelude::*;
 
 use crate::{
-    message::HeaderPacket,
+    HeaderPacket,
     MissionEpoch,
 };
 

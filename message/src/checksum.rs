@@ -43,10 +43,10 @@ macro_rules! impl_checksum {
     };
 
     ($vis:vis $name:ident, $ty:ty, $algo:expr, $vals:ident, $array_body:expr) => {
-        #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, ::serde::Serialize, ::serde::Deserialize)]
+        #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
         $vis struct $name;
 
-        impl $crate::message::Checksum for $name {
+        impl $crate::Checksum for $name {
             type Output = $ty;
 
             #[inline]

@@ -3,6 +3,7 @@ use bytes::Bytes;
 
 mod serial;
 mod state_machine;
+mod time_service;
 
 pub use state_machine::StateMachine;
 

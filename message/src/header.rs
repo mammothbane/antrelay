@@ -2,12 +2,10 @@ use packed_struct::prelude::*;
 use tap::Conv;
 
 use crate::{
-    message::{
-        MagicValue,
-        UniqueId,
-    },
-    util::PacketEnv,
+    MagicValue,
     MissionEpoch,
+    RTParams,
+    UniqueId,
 };
 
 lazy_static::lazy_static! {
@@ -39,7 +37,7 @@ pub struct Header {
 
 impl Header {
     #[inline]
-    pub fn log(env: &PacketEnv, kind: Event) -> Self {
+    pub fn log(env: RTParams, kind: Event) -> Self {
         let mut result = Header::downlink(env, kind);
         result.ty = RequestMeta::PONG;
 
@@ -47,13 +45,13 @@ impl Header {
     }
 
     #[inline]
-    pub fn downlink(env: &PacketEnv, kind: Event) -> Self {
+    pub fn downlink(env: RTParams, kind: Event) -> Self {
         Header {
             magic:       Default::default(),
             destination: Destination::Ground,
 
-            timestamp: env.clock.now(),
-            seq:       env.seq.next(),
+            timestamp: env.time,
+            seq:       env.seq,
 
             ty: RequestMeta {
                 disposition:         Disposition::Command,
@@ -64,13 +62,13 @@ impl Header {
         }
     }
 
-    pub fn fe_command(env: &PacketEnv, kind: Event) -> Self {
+    pub fn fe_command(env: RTParams, kind: Event) -> Self {
         Header {
             magic:       Default::default(),
             destination: Destination::Frontend,
 
-            timestamp: env.clock.now(),
-            seq:       env.seq.next(),
+            timestamp: env.time,
+            seq:       env.seq,
 
             ty: RequestMeta {
                 disposition:         Disposition::Command,
@@ -81,13 +79,13 @@ impl Header {
         }
     }
 
-    pub fn cs_command(env: &PacketEnv, kind: Event) -> Self {
+    pub fn cs_command(env: RTParams, kind: Event) -> Self {
         Header {
             magic:       Default::default(),
             destination: Destination::CentralStation,
 
-            timestamp: env.clock.now(),
-            seq:       env.seq.next(),
+            timestamp: env.time,
+            seq:       env.seq,
 
             ty: RequestMeta {
                 disposition:         Disposition::Command,
@@ -98,13 +96,13 @@ impl Header {
         }
     }
 
-    pub fn ant_command(env: &PacketEnv, kind: Event) -> Self {
+    pub fn ant_command(env: RTParams, kind: Event) -> Self {
         Header {
             magic:       Default::default(),
             destination: Destination::Ant,
 
-            timestamp: env.clock.now(),
-            seq:       env.seq.next(),
+            timestamp: env.time,
+            seq:       env.seq,
 
             ty: RequestMeta {
                 disposition:         Disposition::Command,

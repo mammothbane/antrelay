@@ -10,7 +10,7 @@ use packed_struct::{
     PackingResult,
 };
 
-use crate::message::{
+use crate::{
     checksum,
     Checksum,
 };

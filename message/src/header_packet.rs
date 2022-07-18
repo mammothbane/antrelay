@@ -4,7 +4,7 @@ use packed_struct::{
     PackingResult,
 };
 
-use crate::message::CRCWrap;
+use crate::CRCWrap;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, derive_more::Display)]
 #[display(fmt = "{}/{:?}", header, payload)]

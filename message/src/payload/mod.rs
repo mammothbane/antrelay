@@ -1,4 +1,4 @@
-use crate::message::{
+use crate::{
     HeaderPacket,
     OpaqueBytes,
 };
