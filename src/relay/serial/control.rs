@@ -21,17 +21,6 @@ use crate::{
     },
 };
 
-#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, derive_more::Display)]
-#[repr(u8)]
-pub enum State {
-    FlightIdle,
-    PingCentralStation,
-    StartBLE,
-    PollAnt,
-    CalibrateIMU,
-    AntRun,
-}
-
 #[tracing::instrument(skip(env, uplink_messages, backoff, csq), ret, err(Display), level = "debug")]
 pub async fn state_machine(
     env: impl Borrow<PacketEnv>,
