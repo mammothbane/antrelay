@@ -1,4 +1,5 @@
 use actix::{
+    fut,
     Actor,
     AsyncContext,
     Context,
@@ -19,10 +20,14 @@ impl Actor for WindowsSignal {
     type Context = Context<Self>;
 
     fn started(&mut self, ctx: &mut Self::Context) {
-        ctx.spawn(async move {
-            tokio::signal::ctrl_c().await.expect("listening for ctrl-c");
-            Broker::<SystemBroker>::issue_async(crate::signals::Term);
-        });
+        ctx.spawn(
+            fut::wrap_future(async move {
+                tokio::signal::ctrl_c().await.expect("listening for ctrl-c");
+            })
+            .map(|_, a, ctx| {
+                a.issue_sync::<SystemBroker>(crate::signals::Term, ctx);
+            }),
+        );
     }
 }
 

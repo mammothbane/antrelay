@@ -35,14 +35,13 @@ impl Actor for UnixSignal {
         }
         .unwrap();
 
-        ctx.spawn(async move {
-            sigstream
-                .for_each(|_| async {
-                    Broker::<ArbiterBroker>::issue_async(crate::signals::Term);
+        ctx.spawn(
+            fut::wrap_stream(sigstream)
+                .map(|_x, a, ctx| {
+                    a.issue_async(crate::signals::Term, ctx);
                 })
-                .await;
-        })
-        .expect("spawning signal handler");
+                .finish(),
+        );
     }
 }
 
