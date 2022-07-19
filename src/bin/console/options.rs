@@ -1,6 +1,4 @@
-use antrelay::net::DatagramOps;
-
-type Address = <crate::Socket as DatagramOps>::Address;
+type Address = <crate::Socket as net::DatagramOps>::Address;
 
 #[derive(Debug, Clone, PartialEq, Eq, structopt::StructOpt)]
 pub struct Options {

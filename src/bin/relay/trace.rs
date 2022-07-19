@@ -1,15 +1,14 @@
 use std::str::FromStr;
 
-use smol::stream::Stream;
 use tracing_subscriber::{
     fmt::format::FmtSpan,
     prelude::*,
     EnvFilter,
 };
 
-use antrelay::bootstrap;
+use util::bootstrap;
 
-pub fn init() -> eyre::Result<impl Stream<Item = antrelay::tracing::Event>> {
+pub fn init() {
     let stderr_layer = tracing_subscriber::fmt::layer()
         .with_writer(std::io::stderr)
         .with_span_events(FmtSpan::CLOSE);
@@ -24,18 +23,10 @@ pub fn init() -> eyre::Result<impl Stream<Item = antrelay::tracing::Event>> {
         }
     };
 
-    let (tx, rx) = smol::channel::unbounded();
-
     let level_filter = mk_level_filter();
     bootstrap!("enabling tracing with filter directive: {}", level_filter);
 
-    tracing_subscriber::registry()
-        .with(level_filter)
-        .with(stderr_layer)
-        .with(antrelay::tracing::EventStream::new(tx))
-        .init();
-
-    Ok(rx)
+    tracing_subscriber::registry().with(level_filter).with(stderr_layer).init();
 }
 
 fn mk_level_filter() -> EnvFilter {

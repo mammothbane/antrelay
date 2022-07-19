@@ -130,17 +130,19 @@ dependencies = [
  "actix",
  "actix-broker",
  "aho-corasick",
- "anyhow",
- "async-trait",
+ "antrelay-codec",
+ "antrelay-message",
+ "antrelay-net",
+ "antrelay-runtime",
+ "antrelay-tracing",
+ "antrelay-util",
+ "async-compat",
  "backoff",
  "bincode",
- "brotli",
  "byteorder",
  "bytes",
  "cfg-if",
  "chrono",
- "cobs",
- "crc",
  "dashmap",
  "derive_more",
  "either",
@@ -153,17 +155,12 @@ dependencies = [
  "num-traits",
  "once_cell",
  "packed_struct",
- "paste",
- "pin-project-lite",
- "proptest",
  "rustyline-async",
  "serde",
  "serde_json",
  "serde_repr",
  "shlex",
- "sluice",
  "smallvec",
- "stream-cancel",
  "structopt",
  "tap",
  "thiserror",
@@ -175,7 +172,6 @@ dependencies = [
  "tracing-log",
  "tracing-subscriber",
  "tracing-unwrap",
- "vergen 6.0.2",
 ]
 
 [[package]]
@@ -270,12 +266,14 @@ dependencies = [
 name = "antrelay-util"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "brotli",
  "futures",
  "lazy_static",
  "pin-project-lite",
  "tracing",
  "vergen 0.1.1",
+ "vergen 6.0.2",
 ]
 
 [[package]]
@@ -1725,17 +1723,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "stream-cancel"
-version = "0.8.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7b0a9eb2715209fb8cc0d942fcdff45674bfc9f0090a0d897e85a22955ad159b"
-dependencies = [
- "futures-core",
- "pin-project",
- "tokio",
-]
-
-[[package]]
 name = "strsim"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1894,6 +1881,7 @@ dependencies = [
  "libc",
  "memchr",
  "mio",
+ "num_cpus",
  "once_cell",
  "parking_lot",
  "pin-project-lite",

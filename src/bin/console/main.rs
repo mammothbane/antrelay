@@ -1,54 +1,51 @@
+use async_compat::CompatExt;
+use bytes::{
+    BufMut,
+    Bytes,
+    BytesMut,
+};
+use packed_struct::PackedStructSlice;
 use std::ffi::OsString;
 
+use codec::CobsCodec;
 use rustyline_async::ReadlineError;
-use smol::io::{
+use structopt::StructOpt;
+use tap::Conv;
+use tokio::io::{
     AsyncWrite,
     AsyncWriteExt,
 };
-use structopt::StructOpt;
+use tokio_util::codec::Decoder;
 
-use antrelay::{
-    message::{
-        header::{
-            Disposition,
-            Event,
-            RequestMeta,
-            Server,
-        },
-        payload::RelayPacket,
-        CRCMessage,
-        CRCWrap,
-        Header,
-        OpaqueBytes,
-        StandardCRC,
+use message::{
+    header::{
+        Destination,
+        Disposition,
+        Event,
+        MessageType,
+        Server,
     },
-    net::{
-        DatagramOps,
-        DatagramReceiver,
-    },
-    tracing::Event as TEvent,
-    util::{
-        PacketEnv,
-        DEFAULT_DOWNLINK_CODEC,
-        DEFAULT_SERIAL_CODEC,
-        DEFAULT_UPLINK_CODEC,
-    },
+    payload::RelayPacket,
+    BytesWrap,
+    Message,
+    WithCRC,
 };
+use net::{
+    DatagramOps,
+    DatagramReceiver,
+};
+use traceutil::Event as TEvent;
 
 mod options;
 
 pub use options::Options;
+use util::brotli_decompress;
 
 #[cfg(windows)]
-type Socket = smol::net::UdpSocket;
+type Socket = tokio::net::UdpSocket;
 
 #[cfg(unix)]
-type Socket = smol::net::unix::UnixDatagram;
-
-#[inline]
-fn main() -> eyre::Result<()> {
-    smol::block_on(_main())
-}
+type Socket = tokio::net::UnixDatagram;
 
 #[derive(structopt::StructOpt)]
 #[structopt(setting = structopt::clap::AppSettings::NoBinaryName)]
@@ -60,20 +57,23 @@ enum Command {
     DebugPing,
 }
 
-async fn _main() -> eyre::Result<()> {
+#[actix::main]
+async fn main() -> eyre::Result<()> {
     let opts: Options = Options::from_args();
     let sock = <Socket as DatagramOps>::connect(&opts.uplink_sock).await?;
-    let env = PacketEnv::default();
 
-    let (mut rl, mut w) = rustyline_async::Readline::new("> ".to_owned())?;
-    smol::spawn({
-        let w = w.clone();
+    let (mut rl, w) = rustyline_async::Readline::new("> ".to_owned())?;
+
+    tokio::spawn({
+        let w = w.clone().compat();
+
         async move {
             let sock = <Socket as DatagramOps>::bind(&opts.downlink).await.unwrap();
             read_downlink(sock, w).await.unwrap();
         }
-    })
-    .detach();
+    });
+
+    let mut w = w.compat();
 
     loop {
         w.flush().await?;
@@ -114,9 +114,9 @@ async fn _main() -> eyre::Result<()> {
         };
 
         let msg =
-            CRCMessage::<Vec<u8>, StandardCRC>::new(Header::fe_command(&env, ty), vec![0u8; 0]);
+            message::command(&runtime::params().await, Destination::Frontend, Server::Frontend, ty);
 
-        let pkt = (DEFAULT_UPLINK_CODEC.encode)(msg)?;
+        let pkt = msg.pack_to_vec()?;
         sock.send(&pkt).await?;
 
         w.write_all(format!("\n=> {:?}\n", ty).as_bytes()).await?;
@@ -137,40 +137,50 @@ where
         output.flush().await?;
 
         let count = downlink.recv(&mut buf).await?;
-        let pkt = &buf[..count];
-
-        let msg = (DEFAULT_DOWNLINK_CODEC.decode)(pkt.to_vec())?;
+        let decompressed = brotli_decompress(&&buf[..count])?;
+        let msg = <Message<BytesWrap> as PackedStructSlice>::unpack_from_slice(&decompressed)?;
+        let msg = msg.as_ref();
 
         output.write_all(format!("RECV {}\n", msg.header.display()).as_bytes()).await?;
 
         match msg.header.ty {
-            RequestMeta {
+            MessageType {
                 server: Server::CentralStation,
                 event: Event::CS_PING,
                 ..
             } => {
-                let inner = msg.payload_into::<CRCWrap<RelayPacket>>()?.payload.take();
-                let payload = (DEFAULT_SERIAL_CODEC.decode)(inner.payload)?;
+                let inner = msg.payload_into::<WithCRC<RelayPacket>>()?.payload.take();
+                let payload = CobsCodec
+                    .decode(&mut {
+                        let bytes: Bytes = inner.payload.conv::<Bytes>();
+
+                        let mut out = BytesMut::new();
+                        out.put(bytes);
+                        out
+                    })?
+                    .unwrap();
+
+                let payload_msg = <Message as PackedStructSlice>::unpack_from_slice(&*payload)?;
 
                 output
                     .write_all(
                         format!(
                             "\tWRAP {:?}\n\t\tWRAP: {}\n",
                             inner.header,
-                            payload.header.display(),
+                            payload_msg.as_ref().header.display(),
                         )
                         .as_bytes(),
                     )
                     .await?;
             },
 
-            RequestMeta {
+            MessageType {
                 server: Server::Frontend,
                 event: Event::FE_PING,
                 disposition: Disposition::Command,
                 ..
             } => {
-                let inner = msg.payload_into::<CRCWrap<CRCMessage<OpaqueBytes>>>()?.payload.take();
+                let inner = msg.payload_into::<Message>()?.payload.take();
                 output
                     .write_all(
                         format!(
@@ -183,8 +193,9 @@ where
                     .await?;
             },
 
-            RequestMeta::PONG => {
-                let events = bincode::deserialize::<Vec<TEvent>>(msg.payload.payload_bytes()?)?;
+            MessageType::PONG => {
+                let events =
+                    bincode::deserialize::<Vec<TEvent>>(&*msg.payload.clone().conv::<Bytes>())?;
 
                 for evt in events {
                     output

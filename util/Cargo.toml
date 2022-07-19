@@ -4,6 +4,8 @@ authors = ["Nathan Perry <np@nathanperry.dev>"]
 version = "0.1.0"
 edition = "2021"
 
+build = "build.rs"
+
 [dependencies]
 vergen = "0.1"
 lazy_static = "1.4"
@@ -11,3 +13,7 @@ brotli = "3.3"
 tracing = "0.1"
 futures = "0.3"
 pin-project-lite = "0.2"
+
+[build-dependencies]
+vergen = "6.0"
+anyhow = "1.0"

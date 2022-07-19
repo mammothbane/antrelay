@@ -1,8 +1,8 @@
 #![feature(const_trait_impl)]
 #![feature(const_option_ext)]
 
-mod build;
-mod futures;
+pub mod build;
+pub mod futures;
 mod macros;
 
 #[tracing::instrument(skip_all, level = "trace")]

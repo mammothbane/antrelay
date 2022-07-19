@@ -25,7 +25,7 @@ pub use mission_epoch::MissionEpoch;
 impl_checksum!(pub StandardCRC, u8, ::crc::CRC_8_SMBUS);
 
 pub type WithCRC<T, CRC = StandardCRC> = crc::WithCRC<T, CRC>;
-pub type Message<T, CRC = StandardCRC> = WithCRC<HeaderPacket<Header, T>, CRC>;
+pub type Message<T = BytesWrap, CRC = StandardCRC> = WithCRC<HeaderPacket<Header, T>, CRC>;
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct UniqueId {
