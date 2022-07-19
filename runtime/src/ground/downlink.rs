@@ -22,8 +22,8 @@ use crate::{
 };
 use net::DatagramSender;
 
-type StaticSender<E> = dyn DatagramSender<Error = E> + 'static + Unpin;
-type StaticSenders<E> = Vec<Arc<StaticSender<E>>>;
+pub type StaticSender<E> = dyn DatagramSender<Error = E> + 'static + Unpin;
+pub type StaticSenders<E> = Vec<Arc<StaticSender<E>>>;
 
 pub struct Downlink<E> {
     make:    Box<dyn Fn() -> BoxFuture<'static, Option<StaticSenders<E>>>>,
@@ -72,6 +72,8 @@ where
         ctx.wait(run);
     }
 }
+
+impl<E> Supervised for Downlink<E> where Self: Actor {}
 
 macro_rules! imp {
     ($msg:ty, $extract:expr) => {

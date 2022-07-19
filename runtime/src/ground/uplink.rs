@@ -61,6 +61,8 @@ where
     }
 }
 
+impl<E> Supervised for Uplink<E> where Self: Actor {}
+
 impl<E> Handler<PacketResult<E>> for Uplink<E>
 where
     Self: Actor,

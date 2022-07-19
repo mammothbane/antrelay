@@ -40,6 +40,15 @@ pub struct StateMachine {
     running_task: Option<SpawnHandle>,
 }
 
+impl Default for StateMachine {
+    fn default() -> Self {
+        Self {
+            state:        State::FlightIdle,
+            running_task: None,
+        }
+    }
+}
+
 async fn send_retry(
     msg: impl FnMut() -> BoxFuture<'static, message::Message<BytesWrap>>,
 ) -> Result<Message<Ack>, serial::Error> {
@@ -194,3 +203,5 @@ impl Handler<ground::UpCommand> for StateMachine {
         MessageResult(())
     }
 }
+
+impl Supervised for StateMachine {}

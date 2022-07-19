@@ -2,8 +2,8 @@ use actix::Message;
 use bytes::Bytes;
 use message::BytesWrap;
 
-mod downlink;
-mod uplink;
+pub mod downlink;
+pub mod uplink;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Message)]
 #[rtype(result = "()")]
