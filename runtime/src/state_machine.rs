@@ -1,12 +1,29 @@
-use actix::prelude::*;
-use actix_broker::BrokerIssue;
-use bytes::BytesMut;
+use actix::{
+    fut::LocalBoxActorFuture,
+    prelude::*,
+};
+use actix_broker::{
+    BrokerSubscribe,
+    SystemBroker,
+};
+use futures::future::BoxFuture;
+use std::time::Duration;
+use tokio_retry::strategy::jitter;
 
-use message::{BytesWrap, Header, header::Event, Message, MissionEpoch, RTParams};
-use message::header::{Destination, Server};
+use message::{
+    header::{
+        Destination,
+        Event,
+        Server,
+    },
+    payload::Ack,
+    BytesWrap,
+    Message,
+};
 
 use crate::{
     ground,
+    params,
     serial,
 };
 
@@ -22,140 +39,175 @@ pub enum State {
 }
 
 pub struct StateMachine {
-    state: State,
+    state:        State,
+    running_task: Option<SpawnHandle>,
+}
+
+async fn send_retry(
+    msg: impl FnMut() -> BoxFuture<'static, message::Message<BytesWrap>>,
+) -> Result<Message<Ack>, serial::Error> {
+    // proportion of signal to be jittered, i.e. multiply the signal by a random sample in the range
+    // [1 - JITTER_FACTOR, 1 + JITTER_FACTOR]
+    const JITTER_FACTOR: f64 = 0.5;
+
+    let strategy = tokio_retry::strategy::ExponentialBackoff::from_millis(100)
+        .max_delay(Duration::from_secs(2))
+        .map(|dur| {
+            // make distribution even about 0, scale by factor, offset about 1
+            let jitter = (rand::random::<f64>() - 0.5) * JITTER_FACTOR * 2. + 1.;
+
+            dur.mul_f64(jitter)
+        })
+        .take(10);
+
+    serial::send_retry(msg, Duration::from_millis(750), strategy).await
+}
+
+async fn ping_cs() {
+    let msg = message::command(
+        &params().await,
+        Destination::CentralStation,
+        Server::CentralStation,
+        Event::CS_PING,
+    );
+
+    serial::do_send(msg).await;
+}
+
+async fn ping_ant() {
+    loop {
+        let result = send_retry(|| {
+            Box::pin(async move {
+                message::command(&params().await, Destination::Ant, Server::Ant, Event::A_PING)
+            })
+        })
+        .await;
+
+        if let Err(e) = result {
+            tracing::error!(error = %e, "pinging ant");
+        }
+    }
+}
+
+impl StateMachine {
+    async fn step(
+        &mut self,
+        event_type: Event,
+        ctx: &mut Context<Self>,
+    ) -> Result<(), serial::Error> {
+        let mut old_handle = self.running_task.take();
+
+        match (self.state, event_type) {
+            (State::FlightIdle, Event::FE_5V_SUP) => {
+                let handle = ctx.run_interval(Duration::from_secs(5), move |a, ctx| {
+                    ctx.wait(fut::wrap_future(ping_cs()));
+                });
+
+                self.running_task = Some(handle);
+                self.state = State::PingCentralStation;
+            },
+
+            (State::PingCentralStation, Event::FE_GARAGE_OPEN) => {
+                send_retry(|| {
+                    Box::pin(async move {
+                        message::command(
+                            &params().await,
+                            Destination::CentralStation,
+                            Server::CentralStation,
+                            Event::CS_GARAGE_OPEN,
+                        )
+                    })
+                })
+                .await?;
+
+                self.state = State::StartBLE;
+            },
+
+            (State::StartBLE, Event::CS_GARAGE_OPEN) => {
+                self.running_task = Some(ctx.spawn(fut::wrap_future(ping_ant())));
+
+                self.state = State::PollAnt;
+            },
+
+            (State::PollAnt, Event::FE_ROVER_STOP) => {
+                send_retry(|| {
+                    Box::pin(async move {
+                        message::command(
+                            &params().await,
+                            Destination::Ant,
+                            Server::Ant,
+                            Event::A_CALI,
+                        )
+                    })
+                })
+                .await?;
+
+                self.state = State::AntRun;
+            },
+
+            (State::CalibrateIMU, Event::A_CALI) => {
+                self.state = State::AntRun;
+            },
+
+            (State::CalibrateIMU | State::AntRun, Event::FE_ROVER_MOVE) => {
+                self.state = State::PollAnt;
+            },
+
+            #[cfg(debug_assertions)]
+            (_, Event::FE_CS_PING) => {
+                let msg = message::command(
+                    &params().await,
+                    Destination::CentralStation,
+                    Server::CentralStation,
+                    Event::CS_PING,
+                );
+
+                serial::do_send(msg);
+            },
+
+            (ref state, event) => {
+                tracing::debug!(?state, ?event, "unmatched state machine transition");
+                self.running_task = old_handle;
+                old_handle = None;
+            },
+        };
+
+        if let Some(handle) = old_handle {
+            ctx.cancel_future(handle);
+        }
+
+        Ok(())
+    }
 }
 
 impl Actor for StateMachine {
     type Context = Context<Self>;
 
-    fn started(&mut self, ctx: &mut Self::Context) {}
-}
-
-impl Handler<ground::UpCommand> for StateMachine {
-    type Result = ();
-
-    fn handle(&mut self, msg: ground::UpCommand, ctx: &mut Self::Context) -> Self::Result {
-        let msg = msg.0.as_ref();
-        let event_type = msg.header.ty.event;
-
-        let result = match (self.state, event_type) {
-            (State::FlightIdle, Event::FE_5V_SUP) => {
-                self.state = State::PingCentralStation,
-            },
-
-            (State::PingCentralStation, Event::FE_GARAGE_OPEN) => {
-                self.state = State::StartBLE,
-            },
-
-            (State::StartBLE, Event::CS_GARAGE_OPEN) => {
-                self.state = State::PollAnt,
-            },
-
-            (State::PollAnt, Event::FE_ROVER_STOP) => {},
-
-            (State::CalibrateIMU, Event::A_CALI) => {
-
-            },
-
-            (State::CalibrateIMU, Event::FE_ROVER_MOVE) => {
-
-            },
-
-            #[cfg(debug_assertions)]
-            (_, Event::FE_CS_PING) => {
-                let msg = message::new(Header::command(RTParams {
-                    time: MissionEpoch::now(),
-                    seq: 0,
-                }, Destination::CentralStation, Server::CentralStation, Event::CS_PING), BytesWrap::from(&[0]));
-
-                self.issue_sync(serial::UpMessage(msg), ctx);
-            },
-
-
-
-            State::StartBLE => {
-                send(
-                    "ble start",
-                    CRCMessage::new(Header::cs_command(env.borrow(), Event::CS_GARAGE_OPEN), vec![0]),
-                    backoff,
-                    csq,
-                )
-                    .await?;
-
-                Some(State::PollAnt)
-            },
-
-            // TODO: how do we know we're done? do we continue polling until we get the rover stationary?
-            State::PollAnt => {
-                let env = env.borrow();
-                let csq = csq.borrow();
-                let uplink_messages = &mut uplink_messages;
-
-                loop {
-                    let result = util::either(
-                        send(
-                            "ant_ping",
-                            CRCMessage::new(Header::ant_command(env, Event::A_PING), vec![0]),
-                            backoff.clone(),
-                            csq,
-                        ),
-                        uplink_messages
-                            .filter(|msg| msg.header.ty.event == Event::FE_ROVER_STOP)
-                            .next(),
-                    )
-                        .await;
-
-                    match result {
-                        either::Left(ping) => {
-                            ping?;
-                            continue;
-                        },
-                        either::Right(_rover_stopping) => break Some(State::CalibrateIMU),
-                    }
-                }
-            },
-
-            State::CalibrateIMU => {
-                match util::either(
-                    uplink_messages.filter(|msg| msg.header.ty.event == Event::FE_ROVER_MOVE).next(),
-                    send(
-                        "calibrate imu",
-                        CRCMessage::new(Header::ant_command(env.borrow(), Event::A_CALI), vec![0]),
-                        backoff,
-                        csq,
-                    ),
-                )
-                    .await
-                {
-                    either::Left(None) => return Ok(None),
-                    either::Left(_) => Some(State::PollAnt),
-                    either::Right(send_result) => {
-                        send_result?;
-                        Some(State::AntRun)
-                    },
-                }
-            },
-
-            State::AntRun => {
-                if let None = uplink_messages
-                    .filter(|msg| msg.header.ty.event == Event::FE_ROVER_MOVE)
-                    .next()
-                    .await
-                {
-                    return Ok(None);
-                }
-
-                Some(State::PollAnt)
-            },
-        };
-
+    fn started(&mut self, ctx: &mut Self::Context) {
+        self.subscribe_sync::<SystemBroker, ground::UpCommand>(ctx);
     }
 }
 
-impl Handler<crate::serial::DownMessage> for StateMachine {
-    type Result = ();
+fn step(
+    msg: ground::UpCommand,
+    actor: &mut StateMachine,
+    ctx: &mut Context<StateMachine>,
+) -> ResponseFuture<Result<(), serial::Error>> {
+    let event = msg.0.as_ref().header.ty.event;
+    Box::pin(actor.step(event, ctx))
+}
 
-    fn handle(&mut self, msg: crate::serial::DownMessage, ctx: &mut Self::Context) -> Self::Result {
-        todo!()
+impl Handler<ground::UpCommand> for StateMachine {
+    type Result = ResponseActFuture<Self, ()>;
+
+    fn handle(&mut self, msg: ground::UpCommand, ctx: &mut Self::Context) -> Self::Result {
+        let fut = async move { msg }.into_actor(self);
+        let fut = fut.then(|msg, actor, ctx| {});
+
+        Box::pin(fut.map(|result, _, _| {
+            if let Err(e) = result {
+                tracing::error!(error = %e, "state machine handling message");
+            }
+        }))
     }
 }

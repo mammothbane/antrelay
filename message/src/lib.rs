@@ -10,6 +10,11 @@ mod magic_value;
 mod mission_epoch;
 pub mod payload;
 
+use crate::header::{
+    Destination,
+    Event,
+    Server,
+};
 pub use bytes_wrap::BytesWrap;
 pub use checksum::Checksum;
 pub use header::Header;
@@ -29,7 +34,7 @@ pub struct UniqueId {
 }
 
 #[derive(Debug, Hash, PartialEq, Eq)]
-pub struct RTParams {
+pub struct Params {
     pub time: MissionEpoch,
     pub seq:  u8,
 }
@@ -39,5 +44,18 @@ pub fn new<T>(header: Header, t: T) -> Message<T, StandardCRC> {
     Message::new(HeaderPacket {
         header,
         payload: t,
+    })
+}
+
+#[inline]
+pub fn command(
+    env: &Params,
+    dest: Destination,
+    server: Server,
+    event: Event,
+) -> Message<BytesWrap, StandardCRC> {
+    Message::new(HeaderPacket {
+        header:  Header::command(env, dest, server, event),
+        payload: BytesWrap::from(&[0]),
     })
 }

@@ -1,13 +1,14 @@
+use std::time::Duration;
+
 use actix::prelude::*;
 use actix_broker::{
     BrokerIssue,
     BrokerSubscribe,
     SystemBroker,
 };
-use std::time::Duration;
+use futures::future::BoxFuture;
 use tokio::sync::oneshot;
 
-use crate::serial;
 use message::{
     payload::Ack,
     BytesWrap,
@@ -15,17 +16,82 @@ use message::{
     UniqueId,
 };
 
+use crate::{
+    serial,
+    OverrideRegistry,
+};
+
 #[derive(Debug, Clone, PartialEq, Message)]
 #[rtype(result = "Option<Message<Ack>>")]
-pub struct Request(message::Message<BytesWrap>);
-
-#[derive(Message)]
-#[rtype(result = "()")]
-pub struct GC;
+pub struct Request(pub message::Message<BytesWrap>);
 
 #[derive(Default)]
 pub struct Commander {
     requests: fnv::FnvHashMap<UniqueId, oneshot::Sender<Message<Ack>>>,
+}
+
+#[derive(Debug, Clone, thiserror::Error)]
+pub enum Error {
+    #[error(transparent)]
+    Mailbox(#[from] MailboxError),
+
+    #[error("request was dropped")]
+    RequestDropped,
+}
+
+// TODO: retry
+
+pub async fn send_retry(
+    mut message: impl FnMut() -> BoxFuture<'static, message::Message<BytesWrap>>,
+    request_timeout: Duration,
+    retry_strategy: impl IntoIterator<Item = Duration>,
+) -> Result<Message<Ack>, Error> {
+    tokio_retry::Retry::spawn(retry_strategy, || {
+        let message = message();
+
+        async move {
+            let msg = message.await;
+            send(msg, Some(request_timeout)).await
+        }
+    })
+    .await
+}
+
+#[inline]
+pub async fn send(
+    message: message::Message<BytesWrap>,
+    timeout: Option<Duration>,
+) -> Result<Message<Ack>, Error> {
+    let req = OverrideRegistry::query::<Request, Commander>().await.send(Request(message));
+
+    let resp = match timeout {
+        Some(dur) => req.timeout(dur).await,
+        None => req.await,
+    };
+
+    let resp = resp?.ok_or_else(|| Error::RequestDropped)?;
+
+    Ok(resp)
+}
+
+#[inline]
+pub async fn do_send(message: message::Message<BytesWrap>) {
+    OverrideRegistry::query::<Request, Commander>().await.do_send(Request(message))
+}
+
+impl Commander {
+    fn collect_garbage(&mut self) {
+        let keys = self
+            .requests
+            .iter()
+            .filter(|(_, v)| v.is_closed())
+            .map(|(id, _)| *id)
+            .collect::<Vec<_>>();
+
+        keys.into_iter().for_each(|k| {
+            self.requests.remove(&k);
+        });
+    }
 }
 
 impl Actor for Commander {
@@ -35,16 +101,7 @@ impl Actor for Commander {
         self.subscribe_sync::<SystemBroker, serial::AckMessage>(ctx);
 
         ctx.run_interval(Duration::from_secs(5), |a, _ctx| {
-            let keys = a
-                .requests
-                .iter()
-                .filter(|(_, v)| v.is_closed())
-                .map(|(id, _)| *id)
-                .collect::<Vec<_>>();
-
-            keys.into_iter().for_each(|k| {
-                a.requests.remove(&k);
-            });
+            a.collect_garbage();
         });
     }
 }

@@ -1,5 +1,6 @@
 use actix::{
     fut,
+    prelude::*,
     Actor,
     AsyncContext,
     Context,
@@ -8,7 +9,6 @@ use actix::{
 };
 
 use actix_broker::{
-    Broker,
     BrokerIssue,
     SystemBroker,
 };
@@ -24,8 +24,8 @@ impl Actor for WindowsSignal {
             fut::wrap_future(async move {
                 tokio::signal::ctrl_c().await.expect("listening for ctrl-c");
             })
-            .map(|_, a, ctx| {
-                a.issue_sync::<SystemBroker>(crate::signals::Term, ctx);
+            .map(|_, a: &mut Self, ctx| {
+                a.issue_sync::<SystemBroker, _>(crate::signals::Term, ctx);
             }),
         );
     }

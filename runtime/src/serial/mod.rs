@@ -19,7 +19,10 @@ use message::{
 };
 use packed_struct::PackedStructSlice;
 
+mod commander;
 pub mod raw;
+
+pub use commander::*;
 
 #[derive(Clone, Debug, PartialEq, Message)]
 #[rtype(result = "()")]

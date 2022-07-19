@@ -10,6 +10,6 @@ pub mod unix;
 #[cfg(unix)]
 pub use unix::UnixSignal as Signal;
 
-#[derive(actix::Message)]
+#[derive(Debug, Clone, Default, actix::Message)]
 #[rtype(result = "()")]
 pub struct Term;

@@ -4,7 +4,7 @@ use tap::Conv;
 use crate::{
     MagicValue,
     MissionEpoch,
-    RTParams,
+    Params,
     UniqueId,
 };
 
@@ -37,7 +37,7 @@ pub struct Header {
 
 impl Header {
     #[inline]
-    pub fn log(env: RTParams, kind: Event) -> Self {
+    pub fn log(env: &Params, kind: Event) -> Self {
         let mut result = Header::downlink(env, kind);
         result.ty = MessageType::PONG;
 
@@ -45,7 +45,7 @@ impl Header {
     }
 
     #[inline]
-    pub fn downlink(env: RTParams, kind: Event) -> Self {
+    pub fn downlink(env: &Params, kind: Event) -> Self {
         Header {
             magic:       Default::default(),
             destination: Destination::Ground,
@@ -62,7 +62,7 @@ impl Header {
         }
     }
 
-    pub fn command(env: RTParams, dest: Destination, server: Server, event: Event) -> Self {
+    pub fn command(env: &Params, dest: Destination, server: Server, event: Event) -> Self {
         Self {
             magic:       Default::default(),
             destination: dest,
