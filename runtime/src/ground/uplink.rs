@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use actix::prelude::*;
 use actix_broker::{
     BrokerIssue,
@@ -8,7 +10,8 @@ use futures::{
     future::BoxFuture,
     prelude::*,
 };
-use std::fmt::Display;
+use message::BytesWrap;
+use packed_struct::PackedStructSlice;
 
 use crate::{
     context::ContextExt,
@@ -70,12 +73,24 @@ where
         let pkt = match item.0 {
             Ok(pkt) => pkt,
             Err(e) => {
-                tracing::error!(error = %e, "handling packet");
+                tracing::error!(error = %e, "receiving packet");
                 ctx.stop();
                 return;
             },
         };
 
-        self.issue_sync::<SystemBroker, _>(pkt, ctx);
+        self.issue_sync::<SystemBroker, _>(pkt.clone(), ctx);
+
+        let msg = match <message::Message<BytesWrap> as PackedStructSlice>::unpack_from_slice(
+            pkt.0.as_ref(),
+        ) {
+            Ok(msg) => msg,
+            Err(e) => {
+                tracing::error!(error = %e, "bad uplink message format");
+                return;
+            },
+        };
+
+        self.issue_system_sync(ground::UpCommand(msg), ctx);
     }
 }
