@@ -8,10 +8,6 @@
 
 use actix::Supervisor;
 use eyre::Result;
-use futures::{
-    StreamExt,
-    TryStreamExt,
-};
 use net::{
     DatagramOps,
     DatagramReceiver,
@@ -65,34 +61,24 @@ async fn main() -> Result<()> {
     Supervisor::start(|_ctx| runtime::StateMachine::default());
     Supervisor::start(|_ctx| serial::Serial);
 
-    Supervisor::start(|_ctx| {
-        ground::downlink::Downlink::new(Box::new(move || {
-            Box::pin(async move {
-                let mut v = vec![];
-
-                let result = futures::stream::iter(options.downlink_addresses.iter())
-                    .then(|path| async move {
-                        <Socket as DatagramOps>::bind(path).await.map(|s| {
-                            Arc::new(s) as Arc<StaticSender<<Socket as DatagramSender>::Error>>
-                        })
+    options.downlink_addresses.into_iter()
+        .for_each(|addr| {
+            Supervisor::start(move |_ctx| {
+                ground::downlink::Downlink::new(Box::new(move || {
+                    Box::pin(async move {
+                        match <Socket as DatagramOps>::bind(&addr).await {
+                            Ok(sock) => Some(Arc::new(sock) as Arc<StaticSender<<Socket as DatagramSender>::Error>>),
+                            Err(e) => {
+                                tracing::error!(?addr, error = %e, "unable to connect to downlink socket");
+                                None
+                            },
+                        }
                     })
-                    .try_for_each(|x| async move {
-                        v.push(x);
-                        Ok(())
-                    })
-                    .await;
+                }))
+            });
+        });
 
-                match result {
-                    Ok(_) => Some(v),
-                    Err(e) => {
-                        tracing::error!(error = %e, "connecting to downlink socket");
-                        None
-                    },
-                }
-            })
-        }))
-    });
-    Supervisor::start(|_ctx| ground::uplink::Uplink {
+    Supervisor::start(move |_ctx| ground::uplink::Uplink {
         make_socket: Box::new(move || {
             Box::pin(async move {
                 match <Socket as DatagramOps>::connect(&options.uplink_address).await {

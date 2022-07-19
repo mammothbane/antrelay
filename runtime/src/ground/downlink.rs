@@ -6,10 +6,7 @@ use actix_broker::{
     BrokerSubscribe,
     SystemBroker,
 };
-use futures::{
-    future::BoxFuture,
-    StreamExt,
-};
+use futures::future::BoxFuture;
 use packed_struct::PackedStructSlice;
 use std::{
     fmt::Display,
@@ -23,20 +20,18 @@ use crate::{
 use net::DatagramSender;
 
 pub type StaticSender<E> = dyn DatagramSender<Error = E> + 'static + Unpin;
-pub type StaticSenders<E> = Vec<Arc<StaticSender<E>>>;
+pub type BoxSender<E> = Arc<StaticSender<E>>;
 
 pub struct Downlink<E> {
-    make:    Box<dyn Fn() -> BoxFuture<'static, Option<StaticSenders<E>>>>,
-    senders: StaticSenders<E>,
+    make_socket: Box<dyn Fn() -> BoxFuture<'static, Option<BoxSender<E>>>>,
+    sender:      Option<BoxSender<E>>,
 }
 
 impl<E> Downlink<E> {
-    pub fn new(
-        make_sockets: Box<dyn Fn() -> BoxFuture<'static, Option<StaticSenders<E>>>>,
-    ) -> Self {
+    pub fn new(make_socket: Box<dyn Fn() -> BoxFuture<'static, Option<BoxSender<E>>>>) -> Self {
         Self {
-            make:    make_sockets,
-            senders: vec![],
+            make_socket,
+            sender: None,
         }
     }
 }
@@ -48,10 +43,10 @@ where
     type Context = Context<Self>;
 
     fn started(&mut self, ctx: &mut Self::Context) {
-        let run = fut::wrap_future::<_, Self>((self.make)()).map(|result, a, ctx| {
+        let run = fut::wrap_future::<_, Self>((self.make_socket)()).map(|result, a, ctx| {
             match result {
-                Some(vs) => {
-                    a.senders = vs;
+                Some(sender) => {
+                    a.sender = Some(sender);
                 },
                 None => {
                     tracing::error!("failed to construct downlink");
@@ -94,17 +89,13 @@ macro_rules! imp {
                     },
                 };
 
-                let f = futures::stream::iter(self.senders.clone()).for_each_concurrent(None, move |s| {
-                    let data = compressed.clone();
+                let sender = self.sender.as_ref().unwrap().clone();
 
-                    async move {
-                        if let Err(e) = s.send(data.as_ref()).await {
-                            tracing::error!(error = %e, "sending packet to downlink");
-                        }
+                ctx.wait(fut::wrap_future(async move {
+                    if let Err(e) = sender.send(&compressed).await {
+                        tracing::error!(error = %e, "sending packet to downlink");
                     }
-                });
-
-                ctx.wait(fut::wrap_future(f));
+                }));
             }
         }
     };
@@ -113,6 +104,7 @@ macro_rules! imp {
 imp!(serial::raw::DownPacket, |msg: &serial::raw::DownPacket| msg.0.clone());
 imp!(serial::raw::UpPacket, |msg: &serial::raw::UpPacket| msg.0.clone());
 imp!(ground::UpPacket, |msg: &ground::UpPacket| msg.0.clone());
+
 imp!(serial::UpMessage, |msg: &serial::UpMessage| {
     match msg.0.pack_to_vec() {
         Ok(v) => v,
