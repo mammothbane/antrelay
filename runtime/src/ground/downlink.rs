@@ -8,9 +8,9 @@ use actix_broker::{
 };
 use futures::{
     future::BoxFuture,
-    FutureExt,
     StreamExt,
 };
+use packed_struct::PackedStructSlice;
 use std::{
     fmt::Display,
     sync::Arc,
@@ -61,10 +61,10 @@ where
             };
 
             a.subscribe_async::<SystemBroker, serial::raw::DownPacket>(ctx);
-            // a.subscribe_async::<SystemBroker, serial::raw::UpPacket>(ctx);
-            // a.subscribe_async::<SystemBroker, serial::serde::DownPacket>(ctx);
-            // a.subscribe_async::<SystemBroker, serial::serde::UpPacket>(ctx);
-            // a.subscribe_async::<SystemBroker, ground::UpPacket>(ctx);
+            a.subscribe_async::<SystemBroker, serial::raw::UpPacket>(ctx);
+            a.subscribe_async::<SystemBroker, serial::DownMessage>(ctx);
+            a.subscribe_async::<SystemBroker, serial::UpMessage>(ctx);
+            a.subscribe_async::<SystemBroker, ground::UpPacket>(ctx);
 
             // TODO: log packets
         });
@@ -82,13 +82,21 @@ macro_rules! imp {
             type Result = ();
 
             fn handle(&mut self, msg: $msg, ctx: &mut Self::Context) -> Self::Result {
-                let b: ::bytes::Bytes = ($extract)(msg);
+                let b = ($extract)(&msg);
 
-                let f = futures::stream::iter(self.senders.iter()).for_each_concurrent(None, |s| {
-                    let b = b.clone();
+                let compressed = match ::util::brotli_compress(&b) {
+                    Ok(compressed) => compressed,
+                    Err(e) => {
+                        tracing::error!(error = %e, "failed to compress downlink data");
+                        return;
+                    },
+                };
+
+                let f = futures::stream::iter(self.senders.clone()).for_each_concurrent(None, move |s| {
+                    let data = compressed.clone();
 
                     async move {
-                        if let Err(e) = s.send(b.as_ref()).await {
+                        if let Err(e) = s.send(data.as_ref()).await {
                             tracing::error!(error = %e, "sending packet to downlink");
                         }
                     }
@@ -100,25 +108,24 @@ macro_rules! imp {
     };
 }
 
-// imp!(serial::raw::DownPacket, |msg: serial::raw::DownPacket| msg.0);
-
-impl<E> Handler<serial::raw::DownPacket> for Downlink<E>
-where
-    E: Display + 'static,
-{
-    type Result = ();
-
-    fn handle(&mut self, msg: serial::raw::DownPacket, ctx: &mut Self::Context) -> Self::Result {
-        let f = futures::stream::iter(self.senders.clone()).for_each_concurrent(None, move |s| {
-            let b = msg.0.clone();
-
-            async move {
-                if let Err(e) = s.send(b.as_ref()).await {
-                    tracing::error!(error = %e, "sending packet to downlink");
-                }
-            }
-        });
-
-        ctx.wait(fut::wrap_future(f));
+imp!(serial::raw::DownPacket, |msg: &serial::raw::DownPacket| msg.0.clone());
+imp!(serial::raw::UpPacket, |msg: &serial::raw::UpPacket| msg.0.clone());
+imp!(ground::UpPacket, |msg: &ground::UpPacket| msg.0.clone());
+imp!(serial::UpMessage, |msg: &serial::UpMessage| {
+    match msg.0.pack_to_vec() {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::error!(error = %e, "packing serial message");
+            vec![]
+        },
     }
-}
+});
+imp!(serial::DownMessage, |msg: &serial::DownMessage| {
+    match msg.0.pack_to_vec() {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::error!(error = %e, "packing serial message");
+            vec![]
+        },
+    }
+});

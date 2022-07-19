@@ -177,7 +177,7 @@ impl Actor for StateMachine {
     type Context = Context<Self>;
 
     fn started(&mut self, ctx: &mut Self::Context) {
-        self.subscribe_sync::<SystemBroker, ground::UpCommand>(ctx);
+        self.subscribe_async::<SystemBroker, ground::UpCommand>(ctx);
     }
 }
 

@@ -6,7 +6,7 @@ mod futures;
 mod macros;
 
 #[tracing::instrument(skip_all, level = "trace")]
-pub fn brotli_compress(message: Vec<u8>) -> std::io::Result<Vec<u8>> {
+pub fn brotli_compress(message: &impl AsRef<[u8]>) -> std::io::Result<Vec<u8>> {
     let compressed_bytes = {
         let mut out = vec![];
 
@@ -17,7 +17,7 @@ pub fn brotli_compress(message: Vec<u8>) -> std::io::Result<Vec<u8>> {
             };
         }
 
-        brotli::BrotliCompress(&mut &message[..], &mut out, &*PARAMS)?;
+        brotli::BrotliCompress(&mut message.as_ref(), &mut out, &*PARAMS)?;
 
         out
     };
@@ -26,9 +26,9 @@ pub fn brotli_compress(message: Vec<u8>) -> std::io::Result<Vec<u8>> {
 }
 
 #[tracing::instrument(skip_all, level = "trace")]
-pub fn brotli_decompress(v: Vec<u8>) -> std::io::Result<Vec<u8>> {
+pub fn brotli_decompress(v: &impl AsRef<[u8]>) -> std::io::Result<Vec<u8>> {
     let mut out = vec![];
-    brotli::BrotliDecompress(&mut &v[..], &mut out)?;
+    brotli::BrotliDecompress(&mut v.as_ref(), &mut out)?;
 
     Ok(out)
 }

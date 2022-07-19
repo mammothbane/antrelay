@@ -98,7 +98,7 @@ impl Actor for Commander {
     type Context = Context<Self>;
 
     fn started(&mut self, ctx: &mut Self::Context) {
-        self.subscribe_sync::<SystemBroker, serial::AckMessage>(ctx);
+        self.subscribe_async::<SystemBroker, serial::AckMessage>(ctx);
 
         ctx.run_interval(Duration::from_secs(5), |a, _ctx| {
             a.collect_garbage();
