@@ -5,6 +5,7 @@ mod serial;
 mod signals;
 mod state_machine;
 pub mod system;
+mod context;
 
 pub use signals::Signal;
 pub use state_machine::StateMachine;

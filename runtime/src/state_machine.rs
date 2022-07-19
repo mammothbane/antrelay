@@ -1,14 +1,10 @@
-use actix::{
-    fut::LocalBoxActorFuture,
-    prelude::*,
-};
+use actix::prelude::*;
 use actix_broker::{
     BrokerSubscribe,
     SystemBroker,
 };
 use futures::future::BoxFuture;
 use std::time::Duration;
-use tokio_retry::strategy::jitter;
 
 use message::{
     header::{
@@ -22,12 +18,13 @@ use message::{
 };
 
 use crate::{
+    context::ContextExt,
     ground,
     params,
     serial,
 };
 
-#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, derive_more::Display)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq, PartialOrd, Ord, derive_more::Display)]
 #[repr(u8)]
 pub enum State {
     FlightIdle,
@@ -90,17 +87,13 @@ async fn ping_ant() {
 }
 
 impl StateMachine {
-    async fn step(
-        &mut self,
-        event_type: Event,
-        ctx: &mut Context<Self>,
-    ) -> Result<(), serial::Error> {
+    fn step(&mut self, event_type: Event, ctx: &mut Context<Self>) -> Result<(), serial::Error> {
         let mut old_handle = self.running_task.take();
 
         match (self.state, event_type) {
             (State::FlightIdle, Event::FE_5V_SUP) => {
-                let handle = ctx.run_interval(Duration::from_secs(5), move |a, ctx| {
-                    ctx.wait(fut::wrap_future(ping_cs()));
+                let handle = ctx.run_interval(Duration::from_secs(5), move |_a, ctx| {
+                    ctx.await_(ping_cs());
                 });
 
                 self.running_task = Some(handle);
@@ -108,7 +101,7 @@ impl StateMachine {
             },
 
             (State::PingCentralStation, Event::FE_GARAGE_OPEN) => {
-                send_retry(|| {
+                let fut = send_retry(|| {
                     Box::pin(async move {
                         message::command(
                             &params().await,
@@ -117,8 +110,9 @@ impl StateMachine {
                             Event::CS_GARAGE_OPEN,
                         )
                     })
-                })
-                .await?;
+                });
+
+                ctx.await_(fut)?;
 
                 self.state = State::StartBLE;
             },
@@ -130,7 +124,7 @@ impl StateMachine {
             },
 
             (State::PollAnt, Event::FE_ROVER_STOP) => {
-                send_retry(|| {
+                ctx.await_(send_retry(|| {
                     Box::pin(async move {
                         message::command(
                             &params().await,
@@ -139,8 +133,7 @@ impl StateMachine {
                             Event::A_CALI,
                         )
                     })
-                })
-                .await?;
+                }))?;
 
                 self.state = State::AntRun;
             },
@@ -156,13 +149,13 @@ impl StateMachine {
             #[cfg(debug_assertions)]
             (_, Event::FE_CS_PING) => {
                 let msg = message::command(
-                    &params().await,
+                    &ctx.await_(params()),
                     Destination::CentralStation,
                     Server::CentralStation,
                     Event::CS_PING,
                 );
 
-                serial::do_send(msg);
+                ctx.await_(serial::do_send(msg));
             },
 
             (ref state, event) => {
@@ -188,26 +181,16 @@ impl Actor for StateMachine {
     }
 }
 
-fn step(
-    msg: ground::UpCommand,
-    actor: &mut StateMachine,
-    ctx: &mut Context<StateMachine>,
-) -> ResponseFuture<Result<(), serial::Error>> {
-    let event = msg.0.as_ref().header.ty.event;
-    Box::pin(actor.step(event, ctx))
-}
-
 impl Handler<ground::UpCommand> for StateMachine {
-    type Result = ResponseActFuture<Self, ()>;
+    type Result = MessageResult<ground::UpCommand>;
 
     fn handle(&mut self, msg: ground::UpCommand, ctx: &mut Self::Context) -> Self::Result {
-        let fut = async move { msg }.into_actor(self);
-        let fut = fut.then(|msg, actor, ctx| {});
+        let event = msg.0.as_ref().header.ty.event;
 
-        Box::pin(fut.map(|result, _, _| {
-            if let Err(e) = result {
-                tracing::error!(error = %e, "state machine handling message");
-            }
-        }))
+        if let Err(e) = self.step(event, ctx) {
+            tracing::error!(error = %e, "advancing state machine");
+        }
+
+        MessageResult(())
     }
 }

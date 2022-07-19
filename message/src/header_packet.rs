@@ -4,8 +4,6 @@ use packed_struct::{
     PackingResult,
 };
 
-use crate::WithCRC;
-
 #[derive(Clone, Debug, PartialEq, Eq, Hash, derive_more::Display)]
 #[display(fmt = "{}/{:?}", header, payload)]
 pub struct HeaderPacket<Header, Payload> {
