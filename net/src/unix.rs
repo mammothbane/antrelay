@@ -6,7 +6,7 @@ use std::{
 
 use tokio::net::UnixDatagram;
 
-use crate::net::{
+use crate::{
     DatagramOps,
     DatagramReceiver,
     DatagramSender,
@@ -29,10 +29,10 @@ impl DatagramOps for UnixDatagram {
     #[tracing::instrument(fields(address = ?address), err(Display))]
     async fn bind(address: &Self::Address) -> Result<Self, Self::Error> {
         if let Some(parent) = address.parent() {
-            smol::fs::create_dir_all(parent).await?;
+            tokio::fs::create_dir_all(parent).await?;
         }
 
-        match smol::fs::remove_file(address).await {
+        match tokio::fs::remove_file(address).await {
             Err(e) if e.kind() == io::ErrorKind::NotFound => {},
             result => result?,
         };
@@ -57,7 +57,7 @@ impl DatagramOps for UnixDatagram {
 
 #[async_trait::async_trait]
 impl DatagramSender for UnixDatagram {
-    #[tracing::instrument(skip(self), fields(address = ?self.address), err(Display))]
+    #[tracing::instrument(skip(self), err(Display))]
     #[inline]
     async fn send(&self, packet: &[u8]) -> io::Result<usize> {
         self.send(&packet).await
@@ -66,7 +66,7 @@ impl DatagramSender for UnixDatagram {
 
 #[async_trait::async_trait]
 impl DatagramReceiver for UnixDatagram {
-    #[tracing::instrument(skip(self), fields(address = ?self.address), err(Display))]
+    #[tracing::instrument(skip(self), err(Display))]
     #[inline]
     async fn recv(&self, packet: &mut [u8]) -> io::Result<usize> {
         self.recv(packet).await

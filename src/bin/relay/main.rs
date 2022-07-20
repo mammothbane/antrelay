@@ -34,7 +34,7 @@ pub mod trace;
 type Socket = tokio::net::UdpSocket;
 
 #[cfg(unix)]
-type Socket = tokio::net::unix::UnixDatagram;
+type Socket = tokio::net::UnixDatagram;
 
 fn main() -> std::io::Result<()> {
     util::bootstrap!(
@@ -69,6 +69,8 @@ fn main() -> std::io::Result<()> {
             .for_each(|addr| {
                 Supervisor::start(move |_ctx| {
                     ground::downlink::Downlink::new(Box::new(move || {
+                        let addr = addr.clone();
+
                         Box::pin(async move {
                             match <Socket as DatagramOps>::connect(&addr).await {
                                 Ok(sock) => Some(Arc::new(sock) as Arc<StaticSender<<Socket as DatagramSender>::Error>>),
@@ -84,8 +86,10 @@ fn main() -> std::io::Result<()> {
 
         Supervisor::start(move |_ctx| ground::uplink::Uplink {
             make_socket: Box::new(move || {
+                let addr = options.uplink_address.clone();
+
                 Box::pin(async move {
-                    match <Socket as DatagramOps>::bind(&options.uplink_address).await {
+                    match <Socket as DatagramOps>::bind(&addr).await {
                         Ok(sock) => {
                             let b: Box<
                                 dyn DatagramReceiver<Error = <Socket as DatagramReceiver>::Error>
