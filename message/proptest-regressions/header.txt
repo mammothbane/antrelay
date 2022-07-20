@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 11b8082fd6b2b7c289ed6cc2e7e70917ae9a4fd86285908e2b183ea91c5059f0 # shrinks to header = Header { magic: MagicValue, destination: Ant, timestamp: MissionEpoch { val: 0 }, seq: 0, ty: MessageType { disposition: Ack, valid: false, event: DebugCSPing } }

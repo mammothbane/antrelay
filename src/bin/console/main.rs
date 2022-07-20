@@ -15,7 +15,6 @@ use message::{
     header::{
         Destination,
         Event,
-        Server,
     },
     BytesWrap,
     Downlink,
@@ -97,16 +96,15 @@ async fn main() -> eyre::Result<()> {
         };
 
         let ty: Event = match command {
-            Command::PowerSupplied => Event::FE_5V_SUP,
-            Command::GarageOpenPending => Event::FE_GARAGE_OPEN,
-            Command::RoverStopping => Event::FE_ROVER_STOP,
-            Command::RoverMoving => Event::FE_ROVER_MOVE,
+            Command::PowerSupplied => Event::FEPowerSupplied,
+            Command::GarageOpenPending => Event::FEGarageOpen,
+            Command::RoverStopping => Event::FERoverStop,
+            Command::RoverMoving => Event::FERoverMove,
             #[cfg(debug_assertions)]
-            Command::DebugPing => Event::FE_CS_PING,
+            Command::DebugPing => Event::DebugCSPing,
         };
 
-        let msg =
-            message::command(&runtime::params().await, Destination::Frontend, Server::Frontend, ty);
+        let msg = message::command(&runtime::params().await, Destination::Frontend, ty);
 
         let pkt = msg.pack_to_vec()?;
         sock.send(&pkt).await?;

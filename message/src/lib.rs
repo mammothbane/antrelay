@@ -22,7 +22,6 @@ pub use mission_epoch::MissionEpoch;
 use crate::header::{
     Destination,
     Event,
-    Server,
 };
 
 impl_checksum!(pub StandardCRC, u8, ::crc::CRC_8_SMBUS);
@@ -51,14 +50,9 @@ pub fn new<T>(header: Header, t: T) -> Message<T, StandardCRC> {
 }
 
 #[inline]
-pub fn command(
-    env: &Params,
-    dest: Destination,
-    server: Server,
-    event: Event,
-) -> Message<BytesWrap, StandardCRC> {
+pub fn command(env: &Params, dest: Destination, event: Event) -> Message<BytesWrap, StandardCRC> {
     Message::new(HeaderPacket {
-        header:  Header::command(env, dest, server, event),
+        header:  Header::command(env, dest, event),
         payload: BytesWrap::from(&[0]),
     })
 }

@@ -41,9 +41,9 @@ fn main() -> std::io::Result<()> {
         "starting {} {} ({}, built at {} with rustc {})",
         build::PACKAGE,
         build::VERSION,
-        build::COMMIT_HASH,
+        build::COMMIT_HASH_SHORT,
         build::BUILD_TIMESTAMP,
-        build::RUSTC_COMMIT_HASH,
+        build::RUSTC_COMMIT_HASH_SHORT,
     );
 
     let options: Options = Options::from_args();
@@ -53,9 +53,9 @@ fn main() -> std::io::Result<()> {
     tracing::info!(
         application = %build::PACKAGE,
         version = %build::VERSION,
-        build_commit = %build::COMMIT_HASH,
+        build_commit = %build::COMMIT_HASH_SHORT,
         built_at = %build::BUILD_TIMESTAMP,
-        using_rustc = %build::RUSTC_COMMIT_HASH,
+        using_rustc = %build::RUSTC_COMMIT_HASH_SHORT,
         "tracing subsystem initialized"
     );
 

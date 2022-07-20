@@ -67,6 +67,4 @@ async fn mailbox_sanity() {
     });
 
     tokio::time::sleep(Duration::from_millis(125)).await;
-
-    panic!();
 }

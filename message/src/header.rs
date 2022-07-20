@@ -39,13 +39,18 @@ impl Header {
     #[inline]
     pub fn log(env: &Params, kind: Event) -> Self {
         let mut result = Header::downlink(env, kind);
-        result.ty = MessageType::PONG;
+
+        result.ty = MessageType {
+            disposition: Disposition::Ack,
+            valid:       false,
+            event:       Event::FEPing,
+        };
 
         result
     }
 
     #[inline]
-    pub fn downlink(env: &Params, kind: Event) -> Self {
+    pub fn downlink(env: &Params, event: Event) -> Self {
         Header {
             magic:       Default::default(),
             destination: Destination::Ground,
@@ -54,15 +59,14 @@ impl Header {
             seq:       env.seq,
 
             ty: MessageType {
-                disposition:         Disposition::Command,
-                request_was_invalid: false,
-                server:              Server::Frontend,
-                event:               kind,
+                disposition: Disposition::Command,
+                valid: false,
+                event,
             },
         }
     }
 
-    pub fn command(env: &Params, dest: Destination, server: Server, event: Event) -> Self {
+    pub fn command(env: &Params, dest: Destination, event: Event) -> Self {
         Self {
             magic:       Default::default(),
             destination: dest,
@@ -72,8 +76,7 @@ impl Header {
 
             ty: MessageType {
                 disposition: Disposition::Command,
-                request_was_invalid: false,
-                server,
+                valid: false,
                 event,
             },
         }
@@ -92,18 +95,18 @@ impl Header {
         let mut out = String::new();
 
         let ty_str = format!(
-            "0x{:#?}{}{}",
-            self.ty.event.value,
+            "{:?}{}{}",
+            self.ty.event,
             (self.ty.disposition == Disposition::Ack).then(|| "[Ack]").unwrap_or(""),
-            self.ty.request_was_invalid.then(|| "[Invalid]").unwrap_or(""),
+            self.ty.valid.then(|| "[Invalid]").unwrap_or(""),
         );
 
         let ts = self.timestamp.conv::<chrono::DateTime<chrono::Utc>>();
         let ts_fmt = ts.format("%y/%m/%d %TZ");
 
         out.push_str(&format!(
-            "{}: {} {:?} -> {:?} [{}]",
-            ts_fmt, ty_str, self.ty.server, self.destination, self.seq,
+            "{} [seq {:?}]: {} -> {:?}",
+            ts_fmt, self.seq, ty_str, self.destination
         ));
 
         out
@@ -130,22 +133,10 @@ pub struct MessageType {
     pub disposition: Disposition,
 
     #[packed_field(size_bits = "1")]
-    pub request_was_invalid: bool,
+    pub valid: bool,
 
-    #[packed_field(size_bits = "2", ty = "enum")]
-    pub server: Server,
-
-    #[packed_field(size_bits = "4")]
+    #[packed_field(size_bits = "6", ty = "enum")]
     pub event: Event,
-}
-
-impl MessageType {
-    pub const PONG: Self = Self {
-        disposition:         Disposition::Ack,
-        request_was_invalid: false,
-        server:              Server::Frontend,
-        event:               Event::FE_PING,
-    };
 }
 
 /// The direction of this message.
@@ -158,57 +149,29 @@ pub enum Disposition {
     Ack     = 0x1,
 }
 
-/// The target of this *type* of message. A discriminant.
 #[derive(
     Copy, Clone, Debug, PartialEq, Eq, Hash, PrimitiveEnum_u8, serde::Serialize, serde::Deserialize,
 )]
 #[repr(u8)]
-pub enum Server {
-    Ant            = 0x0,
-    CentralStation = 0x1,
-    Frontend       = 0x2,
-}
+pub enum Event {
+    AntPing         = 0x01,
+    AntStart        = 0x02,
+    AntCalibrate    = 0x03,
+    AntPowerOff     = 0x04,
 
-#[derive(
-    Copy,
-    Clone,
-    Debug,
-    PartialEq,
-    Eq,
-    Hash,
-    derive_more::Into,
-    PackedStruct,
-    serde::Serialize,
-    serde::Deserialize,
-)]
-#[packed_struct(size_bits = "4")]
-pub struct Event {
-    value: u8,
-}
+    CSGarageOpen    = 0x11,
+    CSRoverStop     = 0x12,
+    CSRoverMove     = 0x13,
+    CSPing          = 0x14,
 
-impl const From<u8> for Event {
-    fn from(val: u8) -> Self {
-        Event {
-            value: val,
-        }
-    }
-}
+    FEGarageOpen    = 0x21,
+    FERoverStop     = 0x22,
+    FERoverMove     = 0x23,
+    FEPowerSupplied = 0x24,
+    FEPing          = 0x25,
 
-impl Event {
-    pub const A_CALI: Self = 0x03.into();
-    pub const A_PING: Self = 0x01.into();
-    pub const A_START: Self = 0x02.into();
-    pub const CS_GARAGE_OPEN: Self = 0x01.into();
-    pub const CS_PING: Self = 0x04.into();
-    pub const CS_ROVER_MOVE: Self = 0x03.into();
-    pub const CS_ROVER_STOP: Self = 0x02.into();
-    pub const FE_5V_SUP: Self = 0x04.into();
     #[cfg(debug_assertions)]
-    pub const FE_CS_PING: Self = 0x0f.into();
-    pub const FE_GARAGE_OPEN: Self = 0x01.into();
-    pub const FE_PING: Self = 0x05.into();
-    pub const FE_ROVER_MOVE: Self = 0x03.into();
-    pub const FE_ROVER_STOP: Self = 0x02.into();
+    DebugCSPing     = 0x2f,
 }
 
 #[cfg(test)]
@@ -256,12 +219,11 @@ mod test {
     }
 
     prop_compose! {
-        fn type_strategy()(disposition in direction_strategy(), request_was_invalid in any::<bool>(), server in server_strategy(), event in any::<u8>()) -> MessageType {
+        fn type_strategy()(disposition in direction_strategy(), valid in any::<bool>(), event in event_strategy()) -> MessageType {
             MessageType {
                 disposition,
-                request_was_invalid,
-                server,
-                event: (event & 0x0f).into(),
+                valid,
+                event,
             }
         }
     }
@@ -279,7 +241,23 @@ mod test {
         ]
     }
 
-    fn server_strategy() -> impl Strategy<Value = Server> {
-        prop_oneof![Just(Server::Ant), Just(Server::CentralStation), Just(Server::Frontend),]
+    fn event_strategy() -> impl Strategy<Value = Event> {
+        prop_oneof![
+            Just(Event::AntPing),
+            Just(Event::AntStart),
+            Just(Event::AntCalibrate),
+            Just(Event::AntPowerOff),
+            Just(Event::CSGarageOpen),
+            Just(Event::CSRoverStop),
+            Just(Event::CSRoverMove),
+            Just(Event::CSPing),
+            Just(Event::FEGarageOpen),
+            Just(Event::FERoverStop),
+            Just(Event::FERoverMove),
+            Just(Event::FEPowerSupplied),
+            Just(Event::FEPing),
+            #[cfg(debug_assertions)]
+            Just(Event::DebugCSPing),
+        ]
     }
 }

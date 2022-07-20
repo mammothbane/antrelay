@@ -10,7 +10,6 @@ use message::{
     header::{
         Destination,
         Event,
-        Server,
     },
     payload::Ack,
     BytesWrap,
@@ -68,12 +67,7 @@ async fn send_retry(
 }
 
 async fn ping_cs() {
-    let msg = message::command(
-        &params().await,
-        Destination::CentralStation,
-        Server::CentralStation,
-        Event::CS_PING,
-    );
+    let msg = message::command(&params().await, Destination::CentralStation, Event::CSPing);
 
     serial::do_send(msg).await;
 }
@@ -81,9 +75,9 @@ async fn ping_cs() {
 async fn ping_ant() {
     loop {
         let result = send_retry(|| {
-            Box::pin(async move {
-                message::command(&params().await, Destination::Ant, Server::Ant, Event::A_PING)
-            })
+            Box::pin(
+                async move { message::command(&params().await, Destination::Ant, Event::AntPing) },
+            )
         })
         .await;
 
@@ -94,14 +88,14 @@ async fn ping_ant() {
 }
 
 impl StateMachine {
-    #[tracing::instrument(skip_all, fields(state = ?self.state, event = ?event_type), level = "debug")]
-    fn step(&mut self, event_type: Event, ctx: &mut Context<Self>) -> Result<(), serial::Error> {
+    #[tracing::instrument(skip_all, fields(state = ?self.state, event = ?event), level = "debug")]
+    fn step(&mut self, event: Event, ctx: &mut Context<Self>) -> Result<(), serial::Error> {
         let mut old_handle = self.running_task.take();
 
         tracing::debug!("handling state transition");
 
-        match (self.state, event_type) {
-            (State::FlightIdle, Event::FE_5V_SUP) => {
+        match (self.state, event) {
+            (State::FlightIdle, Event::FEPowerSupplied) => {
                 let handle = ctx.run_interval(Duration::from_secs(5), move |_a, ctx| {
                     ctx.spawn(fut::wrap_future(ping_cs()));
                 });
@@ -110,14 +104,13 @@ impl StateMachine {
                 self.state = State::PingCentralStation;
             },
 
-            (State::PingCentralStation, Event::FE_GARAGE_OPEN) => {
+            (State::PingCentralStation, Event::FEGarageOpen) => {
                 let fut = fut::wrap_future(send_retry(|| {
                     Box::pin(async move {
                         message::command(
                             &params().await,
                             Destination::CentralStation,
-                            Server::CentralStation,
-                            Event::CS_GARAGE_OPEN,
+                            Event::CSGarageOpen,
                         )
                     })
                 }))
@@ -133,21 +126,16 @@ impl StateMachine {
                 ctx.wait(fut);
             },
 
-            (State::StartBLE, Event::CS_GARAGE_OPEN) => {
+            (State::StartBLE, Event::CSGarageOpen) => {
                 self.running_task = Some(ctx.spawn(fut::wrap_future(ping_ant())));
 
                 self.state = State::PollAnt;
             },
 
-            (State::PollAnt, Event::FE_ROVER_STOP) => {
+            (State::PollAnt, Event::FERoverStop) => {
                 let fut = fut::wrap_future(send_retry(|| {
                     Box::pin(async move {
-                        message::command(
-                            &params().await,
-                            Destination::Ant,
-                            Server::Ant,
-                            Event::A_CALI,
-                        )
+                        message::command(&params().await, Destination::Ant, Event::AntCalibrate)
                     })
                 }))
                 .map(|_result, act: &mut Self, _| {
@@ -158,13 +146,12 @@ impl StateMachine {
             },
 
             #[cfg(debug_assertions)]
-            (_, Event::FE_CS_PING) => {
+            (_, Event::DebugCSPing) => {
                 let fut = fut::wrap_future(async move {
                     let msg = message::command(
                         &params().await,
                         Destination::CentralStation,
-                        Server::CentralStation,
-                        Event::CS_PING,
+                        Event::CSPing,
                     );
 
                     serial::do_send(msg).await;
