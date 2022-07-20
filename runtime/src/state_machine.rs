@@ -18,7 +18,6 @@ use message::{
 };
 
 use crate::{
-    context::ContextExt,
     ground,
     params,
     serial,
@@ -31,7 +30,6 @@ pub enum State {
     PingCentralStation,
     StartBLE,
     PollAnt,
-    CalibrateIMU,
     AntRun,
 }
 
@@ -96,13 +94,16 @@ async fn ping_ant() {
 }
 
 impl StateMachine {
+    #[tracing::instrument(skip_all, fields(state = ?self.state, event = ?event_type), level = "debug")]
     fn step(&mut self, event_type: Event, ctx: &mut Context<Self>) -> Result<(), serial::Error> {
         let mut old_handle = self.running_task.take();
+
+        tracing::debug!("handling state transition");
 
         match (self.state, event_type) {
             (State::FlightIdle, Event::FE_5V_SUP) => {
                 let handle = ctx.run_interval(Duration::from_secs(5), move |_a, ctx| {
-                    ctx.await_(ping_cs());
+                    ctx.spawn(fut::wrap_future(ping_cs()));
                 });
 
                 self.running_task = Some(handle);
@@ -110,7 +111,7 @@ impl StateMachine {
             },
 
             (State::PingCentralStation, Event::FE_GARAGE_OPEN) => {
-                let fut = send_retry(|| {
+                let fut = fut::wrap_future(send_retry(|| {
                     Box::pin(async move {
                         message::command(
                             &params().await,
@@ -119,11 +120,17 @@ impl StateMachine {
                             Event::CS_GARAGE_OPEN,
                         )
                     })
+                }))
+                .map(|result, act: &mut Self, _| {
+                    if let Err(e) = result {
+                        tracing::error!(error = %e, "failed to send garage open to central station");
+                        return;
+                    }
+
+                    act.state = State::StartBLE;
                 });
 
-                ctx.await_(fut)?;
-
-                self.state = State::StartBLE;
+                ctx.wait(fut);
             },
 
             (State::StartBLE, Event::CS_GARAGE_OPEN) => {
@@ -133,7 +140,7 @@ impl StateMachine {
             },
 
             (State::PollAnt, Event::FE_ROVER_STOP) => {
-                ctx.await_(send_retry(|| {
+                let fut = fut::wrap_future(send_retry(|| {
                     Box::pin(async move {
                         message::command(
                             &params().await,
@@ -142,29 +149,28 @@ impl StateMachine {
                             Event::A_CALI,
                         )
                     })
-                }))?;
+                }))
+                .map(|_result, act: &mut Self, _| {
+                    act.state = State::AntRun;
+                });
 
-                self.state = State::AntRun;
-            },
-
-            (State::CalibrateIMU, Event::A_CALI) => {
-                self.state = State::AntRun;
-            },
-
-            (State::CalibrateIMU | State::AntRun, Event::FE_ROVER_MOVE) => {
-                self.state = State::PollAnt;
+                ctx.wait(fut);
             },
 
             #[cfg(debug_assertions)]
             (_, Event::FE_CS_PING) => {
-                let msg = message::command(
-                    &ctx.await_(params()),
-                    Destination::CentralStation,
-                    Server::CentralStation,
-                    Event::CS_PING,
-                );
+                let fut = fut::wrap_future(async move {
+                    let msg = message::command(
+                        &params().await,
+                        Destination::CentralStation,
+                        Server::CentralStation,
+                        Event::CS_PING,
+                    );
 
-                ctx.await_(serial::do_send(msg));
+                    serial::do_send(msg).await;
+                });
+
+                ctx.wait(fut);
             },
 
             (ref state, event) => {
@@ -185,15 +191,21 @@ impl StateMachine {
 impl Actor for StateMachine {
     type Context = Context<Self>;
 
+    #[tracing::instrument(skip_all, level = "trace")]
     fn started(&mut self, ctx: &mut Self::Context) {
         self.subscribe_async::<SystemBroker, ground::UpCommand>(ctx);
+        tracing::info!("state machine controller started");
     }
 }
 
 impl Handler<ground::UpCommand> for StateMachine {
     type Result = MessageResult<ground::UpCommand>;
 
+    #[tracing::instrument(skip_all, level = "trace")]
     fn handle(&mut self, msg: ground::UpCommand, ctx: &mut Self::Context) -> Self::Result {
+        // TODO(encoding)
+        tracing::debug!("state machine: handling command");
+
         let event = msg.0.as_ref().header.ty.event;
 
         if let Err(e) = self.step(event, ctx) {
@@ -204,4 +216,8 @@ impl Handler<ground::UpCommand> for StateMachine {
     }
 }
 
-impl Supervised for StateMachine {}
+impl Supervised for StateMachine {
+    fn restarting(&mut self, _ctx: &mut <Self as Actor>::Context) {
+        tracing::warn!("state machine controller restarting");
+    }
+}

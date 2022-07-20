@@ -12,6 +12,8 @@ aho-corasick = "0.7"
 nonempty = "0.8"
 thiserror = "1.0"
 packed_struct = "0.10"
+tracing = "0.1"
+hex = "0.4"
 
 [dev-dependencies]
 eyre = "0.6"

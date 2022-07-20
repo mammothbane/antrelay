@@ -26,7 +26,6 @@ use message::{
         Server,
     },
     payload::RelayPacket,
-    BytesWrap,
     Message,
     WithCRC,
 };
@@ -138,7 +137,7 @@ where
 
         let count = downlink.recv(&mut buf).await?;
         let decompressed = brotli_decompress(&&buf[..count])?;
-        let msg = <Message<BytesWrap> as PackedStructSlice>::unpack_from_slice(&decompressed)?;
+        let msg = <Message as PackedStructSlice>::unpack_from_slice(&decompressed)?;
         let msg = msg.as_ref();
 
         output.write_all(format!("RECV {}\n", msg.header.display()).as_bytes()).await?;

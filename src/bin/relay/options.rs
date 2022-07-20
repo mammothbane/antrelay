@@ -18,4 +18,7 @@ pub struct Options {
 
     #[structopt(long, default_value = "./libs")]
     pub lib_dir: PathBuf,
+
+    #[structopt(long, help = "pretty log output")]
+    pub pretty: bool,
 }

@@ -19,7 +19,7 @@ use crate::{
 };
 use net::DatagramSender;
 
-pub type StaticSender<E> = dyn DatagramSender<Error = E> + 'static + Unpin;
+pub type StaticSender<E> = dyn DatagramSender<Error = E> + 'static + Unpin + Send + Sync;
 pub type BoxSender<E> = Arc<StaticSender<E>>;
 
 pub struct Downlink<E> {
@@ -42,10 +42,12 @@ where
 {
     type Context = Context<Self>;
 
+    #[tracing::instrument(level = "debug", skip_all)]
     fn started(&mut self, ctx: &mut Self::Context) {
         let run = fut::wrap_future::<_, Self>((self.make_socket)()).map(|result, a, ctx| {
             match result {
                 Some(sender) => {
+                    tracing::info!("connected to downlink socket");
                     a.sender = Some(sender);
                 },
                 None => {

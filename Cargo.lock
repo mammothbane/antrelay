@@ -184,6 +184,7 @@ dependencies = [
  "cobs",
  "eyre",
  "futures",
+ "hex",
  "itertools",
  "nonempty",
  "packed_struct",
@@ -193,6 +194,7 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tokio-util",
+ "tracing",
 ]
 
 [[package]]
@@ -240,6 +242,7 @@ dependencies = [
  "derive_more",
  "fnv",
  "futures",
+ "hex",
  "once_cell",
  "packed_struct",
  "rand",

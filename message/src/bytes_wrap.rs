@@ -18,7 +18,10 @@ impl PackedStructSlice for BytesWrap {
     }
 
     fn unpack_from_slice(src: &[u8]) -> PackingResult<Self> {
-        Ok(Self(BytesMut::from(src).freeze()))
+        let mut b = BytesMut::with_capacity(src.len());
+        b.extend_from_slice(src);
+
+        Ok(Self(b.freeze()))
     }
 
     fn packed_bytes_size(opt_self: Option<&Self>) -> PackingResult<usize> {
@@ -34,7 +37,7 @@ where
 {
     fn from(t: T) -> Self {
         let mut m = BytesMut::new();
-        m.copy_from_slice(t.as_ref());
+        m.extend_from_slice(t.as_ref());
 
         BytesWrap(m.freeze())
     }

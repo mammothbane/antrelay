@@ -52,6 +52,7 @@ impl Supervised for Serial {}
 impl Handler<UpMessage> for Serial {
     type Result = ();
 
+    #[tracing::instrument(skip_all, fields(msg = ?msg.0), level = "trace")]
     fn handle(&mut self, msg: UpMessage, ctx: &mut Self::Context) -> Self::Result {
         let result = match msg.0.pack_to_vec() {
             Ok(v) => BytesMut::from(&v[..]).freeze(),
@@ -60,6 +61,8 @@ impl Handler<UpMessage> for Serial {
                 return;
             },
         };
+
+        tracing::info!(hex = %hex::encode(&*result), "sending serial command");
 
         self.issue_sync::<SystemBroker, _>(raw::UpPacket(result), ctx);
     }

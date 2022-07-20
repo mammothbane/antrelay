@@ -4,7 +4,7 @@ pub use ::nonempty;
 pub use ::tokio_util::codec as tokio_codec;
 
 mod all_delimiters;
-mod cobs;
+pub mod cobs;
 mod packed_struct;
 
 pub use self::{

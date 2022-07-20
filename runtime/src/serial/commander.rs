@@ -97,6 +97,7 @@ impl Commander {
 impl Actor for Commander {
     type Context = Context<Self>;
 
+    #[tracing::instrument(skip_all, level = "debug")]
     fn started(&mut self, ctx: &mut Self::Context) {
         self.subscribe_async::<SystemBroker, serial::AckMessage>(ctx);
 
@@ -115,7 +116,7 @@ impl Handler<Request> for Commander {
     fn handle(&mut self, msg: Request, ctx: &mut Self::Context) -> Self::Result {
         let (tx, rx) = oneshot::channel();
         self.requests.insert(msg.0.as_ref().header.unique_id(), tx);
-        self.issue_sync::<SystemBroker, _>(serial::DownMessage(msg.0), ctx);
+        self.issue_sync::<SystemBroker, _>(serial::UpMessage(msg.0), ctx);
 
         Box::pin(async move { rx.await.ok() })
     }

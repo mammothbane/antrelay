@@ -16,7 +16,19 @@ impl Actor for Act {
     type Context = Context<Self>;
 
     fn started(&mut self, ctx: &mut Self::Context) {
+        println!("start");
+
         self.subscribe_async::<SystemBroker, Message>(ctx);
+
+        ctx.wait(
+            fut::wrap_future(async {
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            })
+            .map(|_, _, ctx: &mut Context<Self>| {
+                println!("stop");
+                ctx.stop();
+            }),
+        );
     }
 }
 
@@ -53,4 +65,8 @@ async fn mailbox_sanity() {
     (0..10).for_each(|x| {
         addr.do_send(Message(x));
     });
+
+    tokio::time::sleep(Duration::from_millis(125)).await;
+
+    panic!();
 }

@@ -1,6 +1,5 @@
 use actix::Message;
 use bytes::Bytes;
-use message::BytesWrap;
 
 pub mod downlink;
 pub mod uplink;
@@ -15,4 +14,4 @@ pub struct DownPacket(pub Bytes);
 
 #[derive(Clone, Debug, PartialEq, Message)]
 #[rtype(result = "()")]
-pub struct UpCommand(pub message::Message<BytesWrap>);
+pub struct UpCommand(pub message::Message);

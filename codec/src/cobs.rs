@@ -26,6 +26,7 @@ where
 {
     type Error = Error;
 
+    #[tracing::instrument(skip_all, fields(value = %hex::encode(item.as_ref())), level = "trace", err(Display))]
     fn encode(&mut self, item: T, dst: &mut BytesMut) -> Result<(), Self::Error> {
         let item = item.as_ref();
 
@@ -35,6 +36,8 @@ where
         let count = cobs::encode(item, &mut dst[old_len..]);
         dst.resize(old_len + count + 1, 0);
 
+        tracing::info!(encoded = %hex::encode(&*dst), "cobs-encoded value");
+
         Ok(())
     }
 }
@@ -43,6 +46,7 @@ impl Decoder for CobsCodec {
     type Error = Error;
     type Item = Bytes;
 
+    #[tracing::instrument(skip_all, fields(src = %hex::encode(&*src)), level = "trace", err(Display))]
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
         if src.is_empty() || !src.contains(&0) {
             return Ok(None);
@@ -67,6 +71,8 @@ impl Decoder for CobsCodec {
 
         let mut result = src.split_to(report.src_used + next_zero);
         result.truncate(report.dst_used);
+
+        tracing::info!(decoded = %hex::encode(&*result), "cobs-decoded value");
 
         Ok(Some(result.freeze()))
     }

@@ -15,13 +15,6 @@ use actix_broker::{
     BrokerSubscribe,
     SystemBroker,
 };
-use antrelay_codec::{
-    tokio_codec::{
-        FramedRead,
-        FramedWrite,
-    },
-    CobsCodec,
-};
 use bytes::Bytes;
 use futures::{
     future::BoxFuture,
@@ -36,6 +29,15 @@ use tokio::{
     sync::mpsc,
 };
 use tokio_stream::wrappers::UnboundedReceiverStream;
+
+use antrelay_codec::{
+    cobs::Error,
+    tokio_codec::{
+        FramedRead,
+        FramedWrite,
+    },
+    CobsCodec,
+};
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Message)]
 #[rtype(result = "()")]
@@ -75,6 +77,8 @@ impl Actor for RawIO {
                     },
                 };
 
+                tracing::info!("connected to serial port");
+
                 let (tx, rx) = mpsc::unbounded_channel();
                 let framed_write = FramedWrite::new(w, CobsCodec);
 
@@ -95,6 +99,11 @@ impl Actor for RawIO {
                         .map(|x, a: &mut Self, ctx| {
                             let pkt = match x {
                                 Ok(pkt) => pkt,
+                                Err(Error::Io(e)) => {
+                                    tracing::error!(error = %e, "io error -- reconnecting to serial port");
+                                    ctx.stop();
+                                    return;
+                                },
                                 Err(e) => {
                                     tracing::error!(error = %e);
                                     return;
@@ -113,7 +122,10 @@ impl Actor for RawIO {
 impl Handler<UpPacket> for RawIO {
     type Result = ();
 
+    #[tracing::instrument(skip_all, fields(packet = %hex::encode(&*msg.0)), level = "trace")]
     fn handle(&mut self, msg: UpPacket, _ctx: &mut Self::Context) -> Self::Result {
+        tracing::info!("sending serial packet");
+
         match self.tx {
             Some(ref tx) => {
                 if let Err(_e) = tx.send(msg.0) {
@@ -132,6 +144,7 @@ where
     Self: Actor,
 {
     fn restarting(&mut self, _ctx: &mut <Self as Actor>::Context) {
+        tracing::error!("serial connection restarting");
         self.tx = None;
     }
 }

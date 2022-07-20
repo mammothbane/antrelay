@@ -1,6 +1,5 @@
 #![feature(try_blocks)]
 
-mod context;
 pub mod ground;
 pub mod serial;
 pub mod signals;

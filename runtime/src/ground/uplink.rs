@@ -13,12 +13,9 @@ use futures::{
 use message::BytesWrap;
 use packed_struct::PackedStructSlice;
 
-use crate::{
-    context::ContextExt,
-    ground,
-};
+use crate::ground;
 
-type StaticReceiver<E> = dyn net::DatagramReceiver<Error = E> + 'static + Unpin;
+type StaticReceiver<E> = dyn net::DatagramReceiver<Error = E> + 'static + Unpin + Send + Sync;
 
 pub struct Uplink<E> {
     pub make_socket: Box<dyn Fn() -> BoxFuture<'static, Option<Box<StaticReceiver<E>>>>>,
@@ -34,30 +31,36 @@ where
 {
     type Context = Context<Self>;
 
+    #[tracing::instrument(level = "debug", skip_all)]
     fn started(&mut self, ctx: &mut Self::Context) {
-        let receiver = match ctx.await_((self.make_socket)()) {
-            Some(x) => x,
-            None => {
-                tracing::error!("failed to construct uplink socket");
-                ctx.stop();
-                return;
-            },
-        };
+        let f =
+            fut::wrap_future((self.make_socket)()).map(|result, _a, ctx: &mut Context<Self>| {
+                let receiver = match result {
+                    Some(x) => x,
+                    None => {
+                        tracing::error!("failed to construct uplink socket");
+                        ctx.stop();
+                        return;
+                    },
+                };
 
-        let packets = futures::stream::try_unfold(
-            (receiver, BytesMut::new()),
-            |(recv, mut buf)| async move {
-                buf.reserve(8192);
+                tracing::info!("connected to uplink socket");
 
-                let count: usize = recv.recv(buf.as_mut()).await?;
-                let ret = buf.split_to(count);
+                let packets =
+                    stream::try_unfold((receiver, BytesMut::new()), |(recv, mut buf)| async move {
+                        buf.resize(8192, 0);
 
-                Ok(Some((ground::UpPacket(ret.freeze()), (recv, buf))))
-            },
-        )
-        .map(PacketResult);
+                        let count: usize = recv.recv(buf.as_mut()).await?;
+                        let ret = buf.split_to(count).freeze();
 
-        ctx.add_message_stream(packets);
+                        Ok(Some((ground::UpPacket(ret), (recv, buf))))
+                    })
+                    .map(PacketResult);
+
+                ctx.add_message_stream(packets);
+            });
+
+        ctx.wait(f);
     }
 }
 
@@ -81,6 +84,7 @@ where
             },
         };
 
+        tracing::info!(hex = %hex::encode(&*pkt.0), "raw uplink command packet");
         self.issue_sync::<SystemBroker, _>(pkt.clone(), ctx);
 
         let msg = match <message::Message<BytesWrap> as PackedStructSlice>::unpack_from_slice(
@@ -92,6 +96,9 @@ where
                 return;
             },
         };
+
+        // TODO: encoding
+        tracing::info!("decoded uplink packet");
 
         self.issue_system_sync(ground::UpCommand(msg), ctx);
     }
