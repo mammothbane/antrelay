@@ -1,5 +1,3 @@
-type Address = <crate::Socket as net::DatagramOps>::Address;
-
 #[derive(Debug, Clone, PartialEq, Eq, structopt::StructOpt)]
 pub struct Options {
     #[structopt(long = "downlink", required = true)]
@@ -10,7 +8,7 @@ pub struct Options {
             help = "downlink socket addrs, e.g. 127.0.0.1:3000 (must be IPs: no hostname resolution available)"
         )
     )]
-    pub downlink_addresses: Vec<Address>,
+    pub downlink_addresses: Vec<antrelay::Address>,
 
     #[structopt(long = "uplink")]
     #[cfg_attr(unix, structopt(help = "path to uplink socket"))]
@@ -20,7 +18,7 @@ pub struct Options {
             help = "uplink socket addr, e.g. 127.0.0.1:3000 (must be an IP: no hostname resolution available)"
         )
     )]
-    pub uplink_address: Address,
+    pub uplink_address: antrelay::Address,
 
     #[structopt(short, long)]
     #[cfg_attr(unix, structopt(help = "path to serial port"))]

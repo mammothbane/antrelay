@@ -61,3 +61,8 @@ this is with
 ```console
 $ socat -d -d pty,raw,echo=0 pty,raw,echo=0
 ```
+
+# todo
+- restart socket and serial connections on io error
+- logging for the frontend software
+- integration tests

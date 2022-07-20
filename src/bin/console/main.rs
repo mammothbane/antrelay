@@ -25,16 +25,12 @@ use net::{
     DatagramReceiver,
 };
 
+use antrelay::connect_once;
+
 mod options;
 
 pub use options::Options;
 use util::brotli_decompress;
-
-#[cfg(windows)]
-type Socket = tokio::net::UdpSocket;
-
-#[cfg(unix)]
-type Socket = tokio::net::UnixDatagram;
 
 #[derive(structopt::StructOpt)]
 #[structopt(setting = structopt::clap::AppSettings::NoBinaryName)]
@@ -51,18 +47,19 @@ enum Command {
 #[actix::main]
 async fn main() -> eyre::Result<()> {
     let opts: Options = Options::from_args();
-    let sock = <Socket as DatagramOps>::connect(&opts.uplink).await?;
 
     let (mut rl, w) = rustyline_async::Readline::new("> ".to_owned())?;
-
     tokio::spawn({
         let w = w.clone().compat();
 
         async move {
-            let sock = <Socket as DatagramOps>::bind(&opts.downlink).await.unwrap();
+            let sock = <antrelay::Socket as DatagramOps>::bind(&opts.downlink).await.unwrap();
             read_downlink(sock, w).await.unwrap();
         }
     });
+
+    connect_once(&[opts.uplink.clone()]).await;
+    let sock = <antrelay::Socket as DatagramOps>::connect(&opts.uplink).await?;
 
     let mut w = w.compat();
 

@@ -148,6 +148,7 @@ dependencies = [
  "structopt",
  "tap",
  "tokio",
+ "tokio-retry",
  "tokio-serial",
  "tokio-stream",
  "tokio-util",

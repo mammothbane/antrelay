@@ -6,11 +6,12 @@
 #![feature(iter_intersperse)]
 #![deny(unsafe_code)]
 
+use std::sync::Arc;
+
 use actix::{
     Supervisor,
     System,
 };
-use std::sync::Arc;
 use structopt::StructOpt as _;
 
 use net::{
@@ -26,15 +27,10 @@ use runtime::{
 use util::build;
 
 pub use crate::options::Options;
+use antrelay::connect_once;
 
 mod options;
 pub mod trace;
-
-#[cfg(windows)]
-type Socket = tokio::net::UdpSocket;
-
-#[cfg(unix)]
-type Socket = tokio::net::UnixDatagram;
 
 fn main() -> std::io::Result<()> {
     util::bootstrap!(
@@ -65,50 +61,6 @@ fn main() -> std::io::Result<()> {
         Supervisor::start(|_ctx| runtime::StateMachine::default());
         Supervisor::start(|_ctx| serial::Serial);
 
-        options.downlink_addresses.into_iter()
-            .for_each(|addr| {
-                Supervisor::start(move |_ctx| {
-                    ground::downlink::Downlink::new(Box::new(move || {
-                        let addr = addr.clone();
-
-                        Box::pin(async move {
-                            match <Socket as DatagramOps>::connect(&addr).await {
-                                Ok(sock) => Some(Arc::new(sock) as Arc<StaticSender<<Socket as DatagramSender>::Error>>),
-                                Err(e) => {
-                                    tracing::error!(?addr, error = %e, "unable to connect to downlink socket");
-                                    None
-                                },
-                            }
-                        })
-                    }))
-                });
-            });
-
-        Supervisor::start(move |_ctx| ground::uplink::Uplink {
-            make_socket: Box::new(move || {
-                let addr = options.uplink_address.clone();
-
-                Box::pin(async move {
-                    match <Socket as DatagramOps>::bind(&addr).await {
-                        Ok(sock) => {
-                            let b: Box<
-                                dyn DatagramReceiver<Error = <Socket as DatagramReceiver>::Error>
-                                    + Unpin
-                                    + Send
-                                    + Sync
-                                    + 'static,
-                            > = Box::new(sock);
-                            Some(b)
-                        },
-                        Err(e) => {
-                            tracing::error!(error = %e, "binding uplink socket");
-                            None
-                        },
-                    }
-                })
-            }),
-        });
-
         Supervisor::start(move |_ctx| {
             serial::raw::RawIO::new(Box::new(move || {
                 let port = options.serial_port.clone();
@@ -130,7 +82,51 @@ fn main() -> std::io::Result<()> {
             }))
         });
 
-        tracing::info!("all systems started");
+        Supervisor::start(move |_ctx| ground::uplink::Uplink {
+            make_socket: Box::new(move || {
+                let addr = options.uplink_address.clone();
+
+                Box::pin(async move {
+                    match <antrelay::Socket as DatagramOps>::bind(&addr).await {
+                        Ok(sock) => {
+                            let b: Box<
+                                dyn DatagramReceiver<Error = <antrelay::Socket as DatagramReceiver>::Error>
+                                + Unpin
+                                + Send
+                                + Sync
+                                + 'static,
+                            > = Box::new(sock);
+                            Some(b)
+                        },
+                        Err(e) => {
+                            tracing::error!(error = %e, "binding uplink socket");
+                            None
+                        },
+                    }
+                })
+            }),
+        });
+
+        connect_once(&options.downlink_addresses).await;
+
+        options.downlink_addresses.into_iter()
+            .for_each(|addr| {
+                Supervisor::start(move |_ctx| {
+                    ground::downlink::Downlink::new(Box::new(move || {
+                        let addr = addr.clone();
+
+                        Box::pin(async move {
+                            match <antrelay::Socket as DatagramOps>::connect(&addr).await {
+                                Ok(sock) => Some(Arc::new(sock) as Arc<StaticSender<<antrelay::Socket as DatagramSender>::Error>>),
+                                Err(e) => {
+                                    tracing::error!(?addr, error = %e, "unable to connect to downlink socket");
+                                    None
+                                },
+                            }
+                        })
+                    }))
+                });
+            });
     });
 
     sys.run()
