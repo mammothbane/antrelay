@@ -2,7 +2,7 @@
 
 ## binaries
 
-### relay
+### relay (`src/main.rs`)
 This is the frontend software. It connects to uplink and downlink Unix sockets,
 as well as a serial port (the central station).
 
@@ -29,7 +29,7 @@ For testing, I recommend invoking the `relay` and the `console` in different ter
 
 ```console
 # relay
-$ cargo run --bin relay -- --serial-port <your serial port> --baud <baud> --uplink socks/uplink --downlink socks/downlink
+$ cargo run -- --serial-port <your serial port> --baud <baud> --uplink socks/uplink --downlink socks/downlink
 
 # console
 $ cargo run --bin console -- --uplink socks/uplink --downlink socks/downlink
