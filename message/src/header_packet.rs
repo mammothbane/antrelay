@@ -4,7 +4,9 @@ use packed_struct::{
     PackingResult,
 };
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash, derive_more::Display)]
+#[derive(
+    Clone, Debug, PartialEq, Eq, Hash, derive_more::Display, serde::Serialize, serde::Deserialize,
+)]
 #[display(fmt = "{}/{:?}", header, payload)]
 pub struct HeaderPacket<Header, Payload> {
     pub header:  Header,

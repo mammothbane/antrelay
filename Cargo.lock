@@ -213,6 +213,8 @@ dependencies = [
  "packed_struct",
  "paste",
  "proptest",
+ "serde",
+ "serde_json",
  "smallvec",
  "tap",
  "tracing",

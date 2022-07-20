@@ -8,6 +8,13 @@ use packed_struct::{
     PackedStructInfo,
     PackingResult,
 };
+use serde::{
+    de::Error,
+    Deserialize,
+    Deserializer,
+    Serialize,
+    Serializer,
+};
 
 #[derive(Copy, Clone, Debug, Eq, Ord, Default)]
 pub struct MagicValue<const C: u8>;
@@ -59,6 +66,33 @@ impl<const C: u8, const D: u8> PartialOrd<MagicValue<D>> for MagicValue<C> {
 impl<const C: u8> std::hash::Hash for MagicValue<C> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         C.hash(state)
+    }
+}
+
+impl<const C: u8> Serialize for MagicValue<C> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_u8(C)
+    }
+}
+
+impl<'de, const C: u8> Deserialize<'de> for MagicValue<C> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let val = u8::deserialize(deserializer)?;
+
+        if val != C {
+            return Err(Error::custom(format!(
+                "magic value mismatch (expected: {}, got: {})",
+                C, val
+            )));
+        }
+
+        Ok(MagicValue)
     }
 }
 

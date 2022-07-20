@@ -21,7 +21,7 @@ lazy_static::lazy_static! {
 
 pub type Magic = MagicValue<0xeb>;
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash, PackedStruct)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PackedStruct, serde::Serialize, serde::Deserialize)]
 #[packed_struct(bit_numbering = "msb0", size_bytes = "8", endian = "lsb")]
 pub struct Header {
     #[packed_field(size_bytes = "1")]
@@ -111,7 +111,9 @@ impl Header {
     }
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PrimitiveEnum_u8)]
+#[derive(
+    Copy, Clone, Debug, PartialEq, Eq, Hash, PrimitiveEnum_u8, serde::Serialize, serde::Deserialize,
+)]
 #[repr(u8)]
 pub enum Destination {
     Frontend       = 0x90,
@@ -120,7 +122,9 @@ pub enum Destination {
     Ground         = 0xde,
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PackedStruct)]
+#[derive(
+    Copy, Clone, Debug, PartialEq, Eq, Hash, PackedStruct, serde::Serialize, serde::Deserialize,
+)]
 #[packed_struct(bit_numbering = "msb0", size_bytes = "1")]
 pub struct MessageType {
     #[packed_field(size_bits = "1", ty = "enum")]
@@ -146,7 +150,9 @@ impl MessageType {
 }
 
 /// The direction of this message.
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PrimitiveEnum_u8)]
+#[derive(
+    Copy, Clone, Debug, PartialEq, Eq, Hash, PrimitiveEnum_u8, serde::Serialize, serde::Deserialize,
+)]
 #[repr(u8)]
 pub enum Disposition {
     Command = 0x0,
@@ -154,7 +160,9 @@ pub enum Disposition {
 }
 
 /// The target of this *type* of message. A discriminant.
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PrimitiveEnum_u8)]
+#[derive(
+    Copy, Clone, Debug, PartialEq, Eq, Hash, PrimitiveEnum_u8, serde::Serialize, serde::Deserialize,
+)]
 #[repr(u8)]
 pub enum Server {
     Ant            = 0x0,
@@ -162,7 +170,18 @@ pub enum Server {
     Frontend       = 0x2,
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, derive_more::Into, PackedStruct)]
+#[derive(
+    Copy,
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    derive_more::Into,
+    PackedStruct,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 #[packed_struct(size_bits = "4")]
 pub struct Event {
     value: u8,

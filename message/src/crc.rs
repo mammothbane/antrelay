@@ -1,5 +1,10 @@
 use std::{
+    cmp::Ordering,
     fmt::Debug,
+    hash::{
+        Hash,
+        Hasher,
+    },
     marker::PhantomData,
 };
 
@@ -9,13 +14,19 @@ use packed_struct::{
     prelude::*,
     PackingResult,
 };
+use serde::{
+    Deserialize,
+    Deserializer,
+    Serialize,
+    Serializer,
+};
 
 use crate::{
     checksum,
     Checksum,
 };
 
-#[derive(Debug, Clone, PartialEq, derive_more::Display)]
+#[derive(Debug, Clone, derive_more::Display)]
 #[display(fmt = "{:?}", val)]
 pub struct WithCRC<T, CRC> {
     val:            T,
@@ -138,5 +149,70 @@ where
 
         let count = T::packed_bytes_size(Some(&slf.val))? + Self::CRC_SIZE;
         Ok(count)
+    }
+}
+
+impl<T, CRC> Serialize for WithCRC<T, CRC>
+where
+    T: Serialize,
+{
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        self.val.serialize(serializer)
+    }
+}
+
+impl<'de, T, CRC> Deserialize<'de> for WithCRC<T, CRC>
+where
+    T: Deserialize<'de>,
+{
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let val = T::deserialize(deserializer)?;
+        Ok(Self::new(val))
+    }
+}
+
+impl<T, U, CRC> PartialOrd<WithCRC<U, CRC>> for WithCRC<T, CRC>
+where
+    T: PartialOrd<U>,
+{
+    fn partial_cmp(&self, other: &WithCRC<U, CRC>) -> Option<Ordering> {
+        self.val.partial_cmp(&other.val)
+    }
+}
+
+impl<T, CRC> Ord for WithCRC<T, CRC>
+where
+    Self: PartialOrd,
+    T: Ord,
+{
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.val.cmp(&other.val)
+    }
+}
+
+impl<T, U, CRC> PartialEq<WithCRC<U, CRC>> for WithCRC<T, CRC>
+where
+    T: PartialEq<U>,
+{
+    fn eq(&self, other: &WithCRC<U, CRC>) -> bool {
+        self.val == other.val
+    }
+}
+
+impl<T, CRC> Eq for WithCRC<T, CRC> where Self: PartialEq {}
+
+impl<T, CRC> Hash for WithCRC<T, CRC>
+where
+    T: Hash,
+    CRC: Checksum,
+{
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.val.hash(state)
     }
 }

@@ -13,7 +13,19 @@ lazy_static::lazy_static! {
     };
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, PackedStruct)]
+#[derive(
+    Copy,
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    PackedStruct,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 #[packed_struct(bit_numbering = "msb0", size_bytes = "4", endian = "msb")]
 pub struct MissionEpoch {
     val: u32,
