@@ -1,9 +1,11 @@
 use std::ffi::OsString;
 
 use async_compat::CompatExt;
+use bytes::Bytes;
 use packed_struct::PackedStructSlice;
 use rustyline_async::ReadlineError;
 use structopt::StructOpt;
+use tap::Conv;
 use tokio::io::{
     AsyncWrite,
     AsyncWriteExt,
@@ -15,7 +17,9 @@ use message::{
         Event,
         Server,
     },
+    BytesWrap,
     Downlink,
+    Message,
 };
 use net::{
     DatagramOps,
@@ -40,6 +44,8 @@ enum Command {
     GarageOpenPending,
     RoverStopping,
     RoverMoving,
+
+    #[structopt(name = "ping")]
     DebugPing,
 }
 
@@ -105,7 +111,7 @@ async fn main() -> eyre::Result<()> {
         let pkt = msg.pack_to_vec()?;
         sock.send(&pkt).await?;
 
-        w.write_all(format!("\n=> {:?}\n", ty).as_bytes()).await?;
+        w.write_all(format!("\n").as_bytes()).await?;
     }
 }
 
@@ -127,17 +133,35 @@ where
 
         let msg = bincode::deserialize::<Downlink>(&decompressed)?;
 
-        let line = match msg {
-            Downlink::Log() => "LOG".to_owned(),
-            Downlink::SerialDownlinkRaw(_b) => "SERIAL DOWN RAW".to_owned(),
-            Downlink::SerialDownlink(_m) => "SERIAL DOWN".to_owned(),
-            Downlink::SerialUplinkRaw(_b) => "SERIAL UP RAW".to_owned(),
-            Downlink::SerialUplink(_m) => "SERIAL UP".to_owned(),
-            Downlink::Direct(_b) => "DIRECT".to_owned(),
-            Downlink::UplinkMirror(_b) => "UPLINK MIRROR".to_owned(),
-            Downlink::UplinkInterpreted(_m) => "UPLINK".to_owned(),
+        let mut line = match msg {
+            Downlink::Log() => "LOG".to_owned().into_bytes(),
+
+            Downlink::SerialDownlinkRaw(b) => bytes_format("SERIAL DOWN (BYTES)", b),
+            Downlink::SerialUplinkRaw(b) => bytes_format("SERIAL UP (BYTES)", b),
+            Downlink::Direct(b) => bytes_format("DIRECT (BYTES", b),
+            Downlink::UplinkMirror(b) => bytes_format("UPLINK (BYTES)", b),
+
+            Downlink::SerialDownlink(m) => msg_format("SERIAL DOWN (MSG)", m),
+            Downlink::SerialUplink(m) => msg_format("SERIAL UP (MSG)", m),
+            Downlink::UplinkInterpreted(m) => msg_format("UPLINK (MSG)", m),
         };
 
-        output.write_all(format!("{}\n", line).as_bytes()).await?;
+        line.push(b'\n');
+
+        output.write_all(&line).await?;
     }
+}
+
+fn bytes_format(msg: impl AsRef<str>, b: BytesWrap) -> Vec<u8> {
+    let mut hex = hex::encode(b.conv::<Bytes>());
+    if hex.len() > 60 {
+        hex.truncate(60);
+        hex.push_str("...<trunc>");
+    }
+
+    format!("{}\n\t{}\n", msg.as_ref(), hex).as_bytes().to_vec()
+}
+
+fn msg_format(msg: impl AsRef<str>, m: Message) -> Vec<u8> {
+    format!("{}\n\t{:?}\n", msg.as_ref(), m).as_bytes().to_vec()
 }

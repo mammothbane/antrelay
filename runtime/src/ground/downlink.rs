@@ -73,6 +73,7 @@ where
             a.subscribe_async::<SystemBroker, serial::DownMessage>(ctx);
             a.subscribe_async::<SystemBroker, serial::UpMessage>(ctx);
             a.subscribe_async::<SystemBroker, ground::UpPacket>(ctx);
+            a.subscribe_async::<SystemBroker, ground::UpCommand>(ctx);
 
             // TODO: log packets
         });
@@ -134,3 +135,4 @@ imp!(serial::UpMessage, |msg: &serial::UpMessage| { DownlinkMsg::SerialUplink(ms
 imp!(serial::DownMessage, |msg: &serial::DownMessage| {
     DownlinkMsg::SerialDownlink(msg.0.clone())
 });
+imp!(ground::UpCommand, |msg: &ground::UpCommand| DownlinkMsg::UplinkInterpreted(msg.0.clone()));
