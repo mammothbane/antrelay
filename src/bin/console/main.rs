@@ -51,7 +51,7 @@ enum Command {
 #[actix::main]
 async fn main() -> eyre::Result<()> {
     let opts: Options = Options::from_args();
-    let sock = <Socket as DatagramOps>::connect(&opts.uplink_sock).await?;
+    let sock = <Socket as DatagramOps>::connect(&opts.uplink).await?;
 
     let (mut rl, w) = rustyline_async::Readline::new("> ".to_owned())?;
 

@@ -26,15 +26,7 @@ use tokio_util::codec::{
     FramedWrite,
 };
 
-use message::{
-    header::{
-        Destination,
-        Event,
-    },
-    BytesWrap,
-    Downlink,
-    Message,
-};
+use message::Message;
 
 mod options;
 
