@@ -92,19 +92,18 @@ impl Header {
         let mut out = String::new();
 
         let ty_str = format!(
-            "{:?}{}{}",
-            self.ty.event,
+            "0x{:#?}{}{}",
+            self.ty.event.value,
             (self.ty.disposition == Disposition::Ack).then(|| "[Ack]").unwrap_or(""),
             self.ty.request_was_invalid.then(|| "[Invalid]").unwrap_or(""),
         );
 
+        let ts = self.timestamp.conv::<chrono::DateTime<chrono::Utc>>();
+        let ts_fmt = ts.format("%y/%m/%d %TZ");
+
         out.push_str(&format!(
-            "{:?} {:?} -> {:?} @ {} [{}]",
-            ty_str,
-            self.ty.server,
-            self.destination,
-            self.timestamp.conv::<chrono::DateTime<chrono::Utc>>(),
-            self.seq,
+            "{}: {} {:?} -> {:?} [{}]",
+            ts_fmt, ty_str, self.ty.server, self.destination, self.seq,
         ));
 
         out

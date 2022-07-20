@@ -159,9 +159,9 @@ fn bytes_format(msg: impl AsRef<str>, b: BytesWrap) -> Vec<u8> {
         hex.push_str("...<trunc>");
     }
 
-    format!("{}\n\t{}\n", msg.as_ref(), hex).as_bytes().to_vec()
+    format!("{}\n\t0x{}\n", msg.as_ref(), hex).as_bytes().to_vec()
 }
 
 fn msg_format(msg: impl AsRef<str>, m: Message) -> Vec<u8> {
-    format!("{}\n\t{:?}\n", msg.as_ref(), m).as_bytes().to_vec()
+    format!("{}\n\t{}\n", msg.as_ref(), m).as_bytes().to_vec()
 }

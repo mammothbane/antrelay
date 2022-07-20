@@ -24,15 +24,15 @@ pub mod raw;
 
 pub use commander::*;
 
-#[derive(Clone, Debug, PartialEq, Message)]
+#[derive(Clone, Debug, PartialEq, Message, derive_more::Into, derive_more::AsRef)]
 #[rtype(result = "()")]
-pub struct UpMessage(pub Message<BytesWrap>);
+pub struct UpMessage(pub Message);
 
-#[derive(Clone, Debug, PartialEq, Message)]
+#[derive(Clone, Debug, PartialEq, Message, derive_more::Into, derive_more::AsRef)]
 #[rtype(result = "()")]
-pub struct DownMessage(pub Message<BytesWrap>);
+pub struct DownMessage(pub Message);
 
-#[derive(Clone, Debug, PartialEq, Message)]
+#[derive(Clone, Debug, PartialEq, Message, derive_more::Into, derive_more::AsRef)]
 #[rtype(result = "()")]
 pub struct AckMessage(pub Message<payload::Ack>);
 

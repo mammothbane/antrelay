@@ -39,11 +39,11 @@ use antrelay_codec::{
     CobsCodec,
 };
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Message)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Message, derive_more::Into, derive_more::AsRef)]
 #[rtype(result = "()")]
 pub struct UpPacket(pub Bytes);
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Message)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Message, derive_more::Into, derive_more::AsRef)]
 #[rtype(result = "()")]
 pub struct DownPacket(pub Bytes);
 

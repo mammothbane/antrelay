@@ -86,6 +86,13 @@ impl<E> Supervised for Downlink<E> where Self: Actor {}
 
 macro_rules! imp {
     ($msg:ty, $extract:expr) => {
+        imp!($msg, $extract, |msg: &$msg| {
+            let m = msg.as_ref();
+            format!("{}", m)
+        });
+    };
+
+    ($msg:ty, $extract:expr, $display:expr) => {
         impl<E> Handler<$msg> for Downlink<E>
         where
             E: Display + 'static,
@@ -93,7 +100,7 @@ macro_rules! imp {
             type Result = ();
 
             // TODO(msg encoding)
-            #[::tracing::instrument(skip_all, level = "trace")]
+            #[::tracing::instrument(skip_all, fields(msg = %($display)(&msg)), level = "trace")]
             fn handle(&mut self, msg: $msg, ctx: &mut Self::Context) -> Self::Result {
                 let result: Result<Vec<u8>, Error> = try {
                     let d: ::message::Downlink = ($extract)(&msg);
@@ -123,13 +130,21 @@ macro_rules! imp {
     };
 }
 
-imp!(serial::raw::DownPacket, |msg: &serial::raw::DownPacket| DownlinkMsg::SerialDownlinkRaw(
-    msg.0.clone().into()
-));
-imp!(serial::raw::UpPacket, |msg: &serial::raw::UpPacket| DownlinkMsg::SerialUplinkRaw(
-    msg.0.clone().into()
-));
-imp!(ground::UpPacket, |msg: &ground::UpPacket| DownlinkMsg::UplinkMirror(msg.0.clone().into()));
+imp!(
+    serial::raw::DownPacket,
+    |msg: &serial::raw::DownPacket| DownlinkMsg::SerialDownlinkRaw(msg.0.clone().into()),
+    |msg: &serial::raw::DownPacket| hex::encode(msg.0.as_ref())
+);
+imp!(
+    serial::raw::UpPacket,
+    |msg: &serial::raw::UpPacket| DownlinkMsg::SerialUplinkRaw(msg.0.clone().into()),
+    |msg: &serial::raw::UpPacket| hex::encode(msg.0.as_ref())
+);
+imp!(
+    ground::UpPacket,
+    |msg: &ground::UpPacket| DownlinkMsg::UplinkMirror(msg.0.clone().into()),
+    |msg: &ground::UpPacket| hex::encode(msg.0.as_ref())
+);
 
 imp!(serial::UpMessage, |msg: &serial::UpMessage| { DownlinkMsg::SerialUplink(msg.0.clone()) });
 imp!(serial::DownMessage, |msg: &serial::DownMessage| {

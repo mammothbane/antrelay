@@ -3,11 +3,12 @@ use packed_struct::{
     PackedStructInfo,
     PackingResult,
 };
+use std::fmt::{
+    Display,
+    Formatter,
+};
 
-#[derive(
-    Clone, Debug, PartialEq, Eq, Hash, derive_more::Display, serde::Serialize, serde::Deserialize,
-)]
-#[display(fmt = "{}/{:?}", header, payload)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct HeaderPacket<Header, Payload> {
     pub header:  Header,
     pub payload: Payload,
@@ -89,5 +90,21 @@ where
         ))?;
 
         Ok(Self::header_bytes() + payload_size)
+    }
+}
+
+impl Display for HeaderPacket<crate::Header, crate::BytesWrap> {
+    #[inline]
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} / payload: 0x{}", self.header.display(), hex::encode(self.payload.as_ref()))
+    }
+}
+
+impl<T> Display for HeaderPacket<crate::Header, T>
+where
+    T: Display,
+{
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} / payload: {}", self.header.display(), self.payload)
     }
 }

@@ -1,6 +1,10 @@
 use std::{
     cmp::Ordering,
-    fmt::Debug,
+    fmt::{
+        Debug,
+        Display,
+        Formatter,
+    },
     hash::{
         Hash,
         Hasher,
@@ -26,8 +30,7 @@ use crate::{
     Checksum,
 };
 
-#[derive(Debug, Clone, derive_more::Display)]
-#[display(fmt = "{:?}", val)]
+#[derive(Clone)]
 pub struct WithCRC<T, CRC> {
     val:            T,
     cache_bytes:    OnceCell<PackingResult<Vec<u8>>>,
@@ -214,5 +217,35 @@ where
 {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.val.hash(state)
+    }
+}
+
+impl<T, CRC> Debug for WithCRC<T, CRC>
+where
+    T: Debug + PackedStructSlice,
+    CRC: Checksum,
+{
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let crc = match self.checksum() {
+            Ok(ck) => hex::encode(ck),
+            Err(_) => "<failed crc>".to_string(),
+        };
+
+        write!(f, "CRC({:?}, 0x{})", self.val, crc)
+    }
+}
+
+impl<T, CRC> Display for WithCRC<T, CRC>
+where
+    T: Display + PackedStructSlice,
+    CRC: Checksum,
+{
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let crc = match self.checksum() {
+            Ok(ck) => hex::encode(ck),
+            Err(_) => "<failed crc>".to_string(),
+        };
+
+        write!(f, "{} (crc: 0x{})", self.val, crc)
     }
 }

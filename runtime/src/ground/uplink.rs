@@ -97,9 +97,7 @@ where
             },
         };
 
-        // TODO: encoding
-        tracing::info!("decoded uplink packet");
-
+        tracing::info!(%msg, "decoded uplink packet");
         self.issue_system_sync(ground::UpCommand(msg), ctx);
     }
 }
