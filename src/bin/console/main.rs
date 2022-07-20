@@ -1,39 +1,26 @@
-use async_compat::CompatExt;
-use bytes::{
-    BufMut,
-    Bytes,
-    BytesMut,
-};
-use packed_struct::PackedStructSlice;
 use std::ffi::OsString;
 
-use codec::CobsCodec;
+use async_compat::CompatExt;
+use packed_struct::PackedStructSlice;
 use rustyline_async::ReadlineError;
 use structopt::StructOpt;
-use tap::Conv;
 use tokio::io::{
     AsyncWrite,
     AsyncWriteExt,
 };
-use tokio_util::codec::Decoder;
 
 use message::{
     header::{
         Destination,
-        Disposition,
         Event,
-        MessageType,
         Server,
     },
-    payload::RelayPacket,
-    Message,
-    WithCRC,
+    Downlink,
 };
 use net::{
     DatagramOps,
     DatagramReceiver,
 };
-use traceutil::Event as TEvent;
 
 mod options;
 
@@ -137,75 +124,20 @@ where
 
         let count = downlink.recv(&mut buf).await?;
         let decompressed = brotli_decompress(&&buf[..count])?;
-        let msg = <Message as PackedStructSlice>::unpack_from_slice(&decompressed)?;
-        let msg = msg.as_ref();
 
-        output.write_all(format!("RECV {}\n", msg.header.display()).as_bytes()).await?;
+        let msg = bincode::deserialize::<Downlink>(&decompressed)?;
 
-        match msg.header.ty {
-            MessageType {
-                server: Server::CentralStation,
-                event: Event::CS_PING,
-                ..
-            } => {
-                let inner = msg.payload_into::<WithCRC<RelayPacket>>()?.payload.take();
-                let payload = CobsCodec
-                    .decode(&mut {
-                        let bytes: Bytes = inner.payload.conv::<Bytes>();
+        let line = match msg {
+            Downlink::Log() => "LOG".to_owned(),
+            Downlink::SerialDownlinkRaw(_b) => "SERIAL DOWN RAW".to_owned(),
+            Downlink::SerialDownlink(_m) => "SERIAL DOWN".to_owned(),
+            Downlink::SerialUplinkRaw(_b) => "SERIAL UP RAW".to_owned(),
+            Downlink::SerialUplink(_m) => "SERIAL UP".to_owned(),
+            Downlink::Direct(_b) => "DIRECT".to_owned(),
+            Downlink::UplinkMirror(_b) => "UPLINK MIRROR".to_owned(),
+            Downlink::UplinkInterpreted(_m) => "UPLINK".to_owned(),
+        };
 
-                        let mut out = BytesMut::new();
-                        out.put(bytes);
-                        out
-                    })?
-                    .unwrap();
-
-                let payload_msg = <Message as PackedStructSlice>::unpack_from_slice(&*payload)?;
-
-                output
-                    .write_all(
-                        format!(
-                            "\tWRAP {:?}\n\t\tWRAP: {}\n",
-                            inner.header,
-                            payload_msg.as_ref().header.display(),
-                        )
-                        .as_bytes(),
-                    )
-                    .await?;
-            },
-
-            MessageType {
-                server: Server::Frontend,
-                event: Event::FE_PING,
-                disposition: Disposition::Command,
-                ..
-            } => {
-                let inner = msg.payload_into::<Message>()?.payload.take();
-                output
-                    .write_all(
-                        format!(
-                            "\tWRAP {}\n\t\tlen: {}\n",
-                            inner.header.display(),
-                            inner.payload.as_ref().len(),
-                        )
-                        .as_bytes(),
-                    )
-                    .await?;
-            },
-
-            MessageType::PONG => {
-                let events =
-                    bincode::deserialize::<Vec<TEvent>>(&*msg.payload.clone().conv::<Bytes>())?;
-
-                for evt in events {
-                    output
-                        .write_all(format!("\tLOG {:?}: {:?}\n", evt.ty, evt.args).as_bytes())
-                        .await?;
-                }
-            },
-
-            _ => {
-                output.write_all(b"\tpacket unrecognzed\n").await?;
-            },
-        }
+        output.write_all(format!("{}\n", line).as_bytes()).await?;
     }
 }
