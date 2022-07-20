@@ -97,7 +97,7 @@ impl Commander {
 impl Actor for Commander {
     type Context = Context<Self>;
 
-    #[tracing::instrument(skip_all, level = "debug")]
+    #[tracing::instrument(skip_all)]
     fn started(&mut self, ctx: &mut Self::Context) {
         self.subscribe_async::<SystemBroker, serial::AckMessage>(ctx);
 

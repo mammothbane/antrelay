@@ -9,10 +9,8 @@ use tracing_subscriber::{
 use util::bootstrap;
 
 pub fn init(pretty: bool) {
-    let stderr_layer = tracing_subscriber::fmt::layer()
-        .with_writer(std::io::stderr)
-        .with_span_events(FmtSpan::CLOSE)
-        .with_target(false);
+    let stderr_layer =
+        tracing_subscriber::fmt::layer().with_writer(std::io::stderr).with_target(false);
 
     let level_filter = mk_level_filter();
     bootstrap!("enabling tracing with filter directive: {}", level_filter);
@@ -22,14 +20,8 @@ pub fn init(pretty: bool) {
     if pretty {
         s.with(stderr_layer.pretty()).init();
     } else {
-        s.with(
-            stderr_layer
-                .with_line_number(false)
-                .with_target(false)
-                .with_timer(())
-                .with_span_events(FmtSpan::NONE),
-        )
-        .init();
+        s.with(stderr_layer.with_line_number(false).with_timer(()).with_span_events(FmtSpan::NONE))
+            .init();
     }
 }
 

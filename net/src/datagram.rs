@@ -38,7 +38,7 @@ pub trait DatagramSender {
 impl DatagramOps for UdpSocket {
     type Address = SocketAddr;
 
-    #[tracing::instrument(err, fields(address = Self::display_addr(address).as_str()), level = "debug")]
+    #[tracing::instrument(err, fields(address = Self::display_addr(address).as_str()))]
     #[inline]
     async fn connect(address: &SocketAddr) -> io::Result<Self> {
         let sock = UdpSocket::bind("127.0.0.1:0").await?;
@@ -47,13 +47,13 @@ impl DatagramOps for UdpSocket {
         Ok(sock)
     }
 
-    #[tracing::instrument(err, fields(address = Self::display_addr(address).as_str()), level = "debug")]
+    #[tracing::instrument(err, fields(address = Self::display_addr(address).as_str()))]
     #[inline]
     async fn bind(address: &Self::Address) -> Result<Self, Self::Error> {
         UdpSocket::bind(address).await
     }
 
-    #[tracing::instrument(err, skip_all, level = "debug")]
+    #[tracing::instrument(err, skip_all)]
     #[inline]
     fn shutdown(&self, _how: Shutdown) -> io::Result<()> {
         Ok(())
@@ -67,7 +67,7 @@ impl DatagramOps for UdpSocket {
 
 #[async_trait::async_trait]
 impl DatagramSender for UdpSocket {
-    #[tracing::instrument(err, ret, fields(packet.len = packet.len(), self.addr = ?self.local_addr().ok()), skip(packet, self), level = "trace")]
+    #[tracing::instrument(err, fields(packet.len = packet.len(), self.addr = ?self.local_addr().ok()), skip(packet, self))]
     #[inline]
     async fn send(&self, packet: &[u8]) -> io::Result<usize> {
         self.send(&packet).await
@@ -76,7 +76,7 @@ impl DatagramSender for UdpSocket {
 
 #[async_trait::async_trait]
 impl DatagramReceiver for UdpSocket {
-    #[tracing::instrument(err, ret, fields(buf.len = buf.len(), self.addr = ?self.local_addr().ok()), skip(self, buf), level = "trace")]
+    #[tracing::instrument(err, fields(buf.len = buf.len(), self.addr = ?self.local_addr().ok()), skip(self, buf))]
     #[inline]
     async fn recv(&self, buf: &mut [u8]) -> io::Result<usize> {
         self.recv(buf).await

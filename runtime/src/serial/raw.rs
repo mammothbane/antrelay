@@ -122,7 +122,7 @@ impl Actor for RawIO {
 impl Handler<UpPacket> for RawIO {
     type Result = ();
 
-    #[tracing::instrument(skip_all, fields(packet = %hex::encode(&*msg.0)), level = "trace")]
+    #[tracing::instrument(skip_all, fields(msg = %hex::encode(&*msg.0)))]
     fn handle(&mut self, msg: UpPacket, _ctx: &mut Self::Context) -> Self::Result {
         tracing::info!("sending serial packet");
 

@@ -57,6 +57,7 @@ impl DatagramOps for UnixDatagram {
 
 #[async_trait::async_trait]
 impl DatagramSender for UnixDatagram {
+    #[tracing::instrument(skip(self), fields(address = ?self.address), err(Display))]
     #[inline]
     async fn send(&self, packet: &[u8]) -> io::Result<usize> {
         self.send(&packet).await
@@ -65,6 +66,7 @@ impl DatagramSender for UnixDatagram {
 
 #[async_trait::async_trait]
 impl DatagramReceiver for UnixDatagram {
+    #[tracing::instrument(skip(self), fields(address = ?self.address), err(Display))]
     #[inline]
     async fn recv(&self, packet: &mut [u8]) -> io::Result<usize> {
         self.recv(packet).await

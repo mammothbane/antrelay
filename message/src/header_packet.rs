@@ -26,7 +26,7 @@ where
         bits / 8
     }
 
-    #[tracing::instrument(level = "trace", skip_all)]
+    #[tracing::instrument(skip_all)]
     pub fn payload_into<T>(&self) -> PackingResult<HeaderPacket<Header, T>>
     where
         Payload: PackedStructSlice,
@@ -48,7 +48,7 @@ where
     Header: PackedStructInfo + PackedStructSlice,
     Payload: PackedStructSlice,
 {
-    #[tracing::instrument(fields(output.len = output.len()), skip(self, output), err, level = "trace")]
+    #[tracing::instrument(fields(output.len = output.len()), skip(self, output), err)]
     fn pack_to_slice(&self, output: &mut [u8]) -> PackingResult<()> {
         let header_len = Self::header_bytes();
         if header_len > output.len() {
@@ -63,7 +63,7 @@ where
         Ok(())
     }
 
-    #[tracing::instrument(err(Display), level = "trace")]
+    #[tracing::instrument(err(Display))]
     fn unpack_from_slice(src: &[u8]) -> PackingResult<Self> {
         let header_len = Self::header_bytes();
         if header_len > src.len() {

@@ -31,7 +31,7 @@ where
 {
     type Context = Context<Self>;
 
-    #[tracing::instrument(level = "debug", skip_all)]
+    #[tracing::instrument(skip_all)]
     fn started(&mut self, ctx: &mut Self::Context) {
         let f =
             fut::wrap_future((self.make_socket)()).map(|result, _a, ctx: &mut Context<Self>| {

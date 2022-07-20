@@ -53,7 +53,7 @@ where
 {
     type Context = Context<Self>;
 
-    #[tracing::instrument(level = "debug", skip_all)]
+    #[tracing::instrument(skip_all)]
     fn started(&mut self, ctx: &mut Self::Context) {
         let run = fut::wrap_future::<_, Self>((self.make_socket)()).map(|result, a, ctx| {
             match result {
@@ -100,7 +100,7 @@ macro_rules! imp {
             type Result = ();
 
             // TODO(msg encoding)
-            #[::tracing::instrument(skip_all, fields(msg = %($display)(&msg)), level = "trace")]
+            #[::tracing::instrument(skip_all, fields(msg = %($display)(&msg)))]
             fn handle(&mut self, msg: $msg, ctx: &mut Self::Context) -> Self::Result {
                 let result: Result<Vec<u8>, Error> = try {
                     let d: ::message::Downlink = ($extract)(&msg);
