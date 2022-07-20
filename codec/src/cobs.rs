@@ -36,7 +36,7 @@ where
         let count = cobs::encode(item, &mut dst[old_len..]);
         dst.resize(old_len + count + 1, 0);
 
-        tracing::info!(encoded = %hex::encode(&*dst), "cobs-encoded value");
+        tracing::info!(encoded = %hex::encode(&dst[old_len..]), "cobs-encoded value");
 
         Ok(())
     }
