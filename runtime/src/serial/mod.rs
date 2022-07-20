@@ -11,13 +11,15 @@ use actix_broker::{
     SystemBroker,
 };
 use bytes::BytesMut;
+use packed_struct::PackedStructSlice;
+
 use message::{
-    header::Disposition,
-    payload,
-    BytesWrap,
+    header::{
+        Event,
+        MessageType,
+    },
     Message,
 };
-use packed_struct::PackedStructSlice;
 
 mod commander;
 pub mod raw;
@@ -34,7 +36,7 @@ pub struct DownMessage(pub Message);
 
 #[derive(Clone, Debug, PartialEq, Message, derive_more::Into, derive_more::AsRef)]
 #[rtype(result = "()")]
-pub struct AckMessage(pub Message<payload::Ack>);
+pub struct AckMessage(pub message::Ack);
 
 pub struct Serial;
 
@@ -72,29 +74,42 @@ impl Handler<raw::DownPacket> for Serial {
     type Result = ();
 
     fn handle(&mut self, msg: raw::DownPacket, ctx: &mut Self::Context) -> Self::Result {
-        let unpacked =
-            match <Message<BytesWrap> as PackedStructSlice>::unpack_from_slice(msg.0.as_ref()) {
-                Ok(dl) => dl,
-                Err(e) => {
-                    tracing::error!(error = %e, "unpacking serial downlink message");
-                    return;
-                },
-            };
+        let unpacked = match <Message as PackedStructSlice>::unpack_from_slice(msg.0.as_ref()) {
+            Ok(dl) => dl,
+            Err(e) => {
+                tracing::error!(error = %e, "unpacking serial downlink message");
+                return;
+            },
+        };
 
-        if unpacked.as_ref().header.ty.disposition == Disposition::Ack {
-            let inner = unpacked.as_ref();
+        self.issue_sync::<SystemBroker, _>(DownMessage(unpacked.clone()), ctx);
 
-            let ack = match inner.payload_into::<payload::Ack>() {
-                Ok(ack) => Message::new(ack),
-                Err(e) => {
-                    tracing::error!(error = %e, "reinterpreting payload as ack message");
-                    return;
-                },
-            };
+        let inner = unpacked.as_ref();
+        let header = &inner.header;
 
-            self.issue_sync::<SystemBroker, _>(AckMessage(ack), ctx);
+        let _span =
+            tracing::info_span!("serial message decoded", event = ?header.ty.event).entered();
+
+        match header.ty {
+            MessageType {
+                event: Event::CSPing | Event::CSRelay,
+                ..
+            } => {
+                tracing::debug!(payload = %hex::encode(&*inner.payload.as_ref()), "serial message is a relay/ping packet")
+            },
+            _ => {
+                let ack = match inner.payload_into::<Message>() {
+                    Ok(ack) => Message::new(ack),
+                    Err(e) => {
+                        tracing::warn!(error = %e, "interpreting payload as ack message");
+                        return;
+                    },
+                };
+
+                tracing::info!(unique_id = %ack.as_ref().header.unique_id(), "decoded acked serial command");
+
+                self.issue_sync::<SystemBroker, _>(AckMessage(ack), ctx);
+            },
         }
-
-        self.issue_sync::<SystemBroker, _>(DownMessage(unpacked), ctx);
     }
 }

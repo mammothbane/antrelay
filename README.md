@@ -2,41 +2,62 @@
 
 ## binaries
 
-### relay (`src/main.rs`)
+### antrelay (`src/main.rs`)
+
 This is the frontend software. It connects to uplink and downlink Unix sockets,
 as well as a serial port (the central station).
 
 ### console
+
 An uplink/downlink simulator console. Connects to running `relay` software and
 sends packets as if it were the rover.
 
-### mockrover
-Meant to exercise various systems on `relay`. Not entirely up-to-date at the moment.
+### serial_console
+
+Similar to `console`, emulates the serial side. Connects to a serial port and sends cobs-encoded
+packets as if it were
+the central station.
 
 ## windows
-Development was a bit practically easier for me on Windows, so everything also
-runs on Windows -- in this case, rather than Unix sockets, everything communicates
-over IP/UDP sockets.
+
+Development was a bit practically easier for me on Windows, so everything also runs on Windows -- in
+this case, rather than Unix sockets, everything communicates over IP/UDP sockets.
 
 ## build / run
-This was written in Rust. Grab it from https://rustup.rs. To run a binary:
+
+This project was written in Rust. Grab it from <https://rustup.rs>. To run a binary:
 
 ```console
 $ cargo run --bin <binary_name> -- <args>
 ```
 
-For testing, I recommend invoking the `relay` and the `console` in different terminals:
+For testing, I recommend invoking `antrelay` and the `console` in different terminals:
 
 ```console
 # relay
-$ cargo run -- --serial-port <your serial port> --baud <baud> --uplink socks/uplink --downlink socks/downlink
+$ cargo run -- --serial-port <your serial port> --uplink socks/uplink --downlink socks/downlink
 
 # console
 $ cargo run --bin console -- --uplink socks/uplink --downlink socks/downlink
 ```
 
-The console supports both submitting commands to the uplink, and decoding messages that come back over the downlink. Type `help` to list supported commands.
+The console supports both submitting commands to the uplink, and decoding messages that come back
+over the downlink.
 
-## not yet finished
-- The frontend `PONG` format -- sends back all log statements in an unfilterred and uncompacted form. It works, but is going to change.
+Type `help` to list supported commands.
 
+## debugging serial (`serial_console`)
+
+If you want to test serial functionality independent of the hardware, use `serial_console`:
+
+```console
+$ cargo run --bin serial_console -- --serial_port <your serial port>
+```
+
+You'll probably need a null modem/loopback serial connection. The easiest way I've found to emulate
+this is with
+`socat`. It will report the ptys it allocates for you, to use with `serial_console` and `antrelay`:
+
+```console
+$ socat -d -d pty,raw,echo=0 pty,raw,echo=0
+```

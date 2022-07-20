@@ -1,6 +1,13 @@
 #![feature(const_trait_impl)]
 #![feature(const_convert)]
 
+use std::fmt::{
+    Display,
+    Formatter,
+};
+
+use tap::Conv;
+
 mod bytes_wrap;
 pub mod checksum;
 pub mod crc;
@@ -28,11 +35,18 @@ impl_checksum!(pub StandardCRC, u8, ::crc::CRC_8_SMBUS);
 
 pub type WithCRC<T, CRC = StandardCRC> = crc::WithCRC<T, CRC>;
 pub type Message<T = BytesWrap, CRC = StandardCRC> = WithCRC<HeaderPacket<Header, T>, CRC>;
+pub type Ack = Message<Message>;
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct UniqueId {
     timestamp: MissionEpoch,
     seq:       u8,
+}
+
+impl Display for UniqueId {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} [seq {}]", self.timestamp.conv::<chrono::DateTime<chrono::Utc>>(), self.seq)
+    }
 }
 
 #[derive(Debug, Hash, PartialEq, Eq)]

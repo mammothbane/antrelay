@@ -9,12 +9,7 @@ use actix_broker::{
 use futures::future::BoxFuture;
 use tokio::sync::oneshot;
 
-use message::{
-    payload::Ack,
-    BytesWrap,
-    Message,
-    UniqueId,
-};
+use message::UniqueId;
 
 use crate::{
     serial,
@@ -22,12 +17,12 @@ use crate::{
 };
 
 #[derive(Debug, Clone, PartialEq, Message)]
-#[rtype(result = "Option<Message<Ack>>")]
-pub struct Request(pub message::Message<BytesWrap>);
+#[rtype(result = "Option<message::Ack>")]
+pub struct Request(pub message::Message);
 
 #[derive(Default)]
 pub struct Commander {
-    requests: fnv::FnvHashMap<UniqueId, oneshot::Sender<Message<Ack>>>,
+    requests: fnv::FnvHashMap<UniqueId, oneshot::Sender<message::Ack>>,
 }
 
 #[derive(Debug, Clone, thiserror::Error)]
@@ -37,15 +32,16 @@ pub enum Error {
 
     #[error("request was dropped")]
     RequestDropped,
+
+    #[error("invalid response checksum")]
+    InvalidChecksum,
 }
 
-// TODO: retry
-
 pub async fn send_retry(
-    mut message: impl FnMut() -> BoxFuture<'static, message::Message<BytesWrap>>,
+    mut message: impl FnMut() -> BoxFuture<'static, message::Message>,
     request_timeout: Duration,
     retry_strategy: impl IntoIterator<Item = Duration>,
-) -> Result<Message<Ack>, Error> {
+) -> Result<message::Ack, Error> {
     tokio_retry::Retry::spawn(retry_strategy, || {
         let message = message();
 
@@ -59,9 +55,9 @@ pub async fn send_retry(
 
 #[inline]
 pub async fn send(
-    message: message::Message<BytesWrap>,
+    message: message::Message,
     timeout: Option<Duration>,
-) -> Result<Message<Ack>, Error> {
+) -> Result<message::Ack, Error> {
     let req = OverrideRegistry::query::<Request, Commander>().await.send(Request(message));
 
     let resp = match timeout {
@@ -69,13 +65,16 @@ pub async fn send(
         None => req.await,
     };
 
-    let resp = resp?.ok_or_else(|| Error::RequestDropped)?;
+    let resp: message::Ack = resp?.ok_or_else(|| Error::RequestDropped)?;
+    if !resp.as_ref().header.ty.valid || !resp.as_ref().payload.as_ref().header.ty.valid {
+        return Err(Error::InvalidChecksum);
+    }
 
     Ok(resp)
 }
 
 #[inline]
-pub async fn do_send(message: message::Message<BytesWrap>) {
+pub async fn do_send(message: message::Message) {
     OverrideRegistry::query::<Request, Commander>().await.do_send(Request(message))
 }
 
@@ -111,7 +110,7 @@ impl Supervised for Commander {}
 impl SystemService for Commander {}
 
 impl Handler<Request> for Commander {
-    type Result = ResponseFuture<Option<Message<Ack>>>;
+    type Result = ResponseFuture<Option<message::Ack>>;
 
     fn handle(&mut self, msg: Request, ctx: &mut Self::Context) -> Self::Result {
         let (tx, rx) = oneshot::channel();
@@ -126,12 +125,12 @@ impl Handler<serial::AckMessage> for Commander {
     type Result = ();
 
     fn handle(&mut self, msg: serial::AckMessage, _ctx: &mut Self::Context) -> Self::Result {
-        let msg_id = msg.0.as_ref().header.unique_id();
+        let msg_id = msg.0.as_ref().payload.as_ref().header.unique_id();
 
         match self.requests.remove(&msg_id) {
             Some(tx) => {
                 if let Err(_msg) = tx.send(msg.0) {
-                    tracing::warn!(?msg_id, "tried to ack command, listener disappeared");
+                    tracing::warn!(?msg_id, "tried to ack command, listener dropped");
                 }
             },
             None => {

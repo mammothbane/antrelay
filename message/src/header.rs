@@ -163,6 +163,7 @@ pub enum Event {
     CSRoverStop     = 0x12,
     CSRoverMove     = 0x13,
     CSPing          = 0x14,
+    CSRelay         = 0x15,
 
     FEGarageOpen    = 0x21,
     FERoverStop     = 0x22,

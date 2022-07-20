@@ -11,9 +11,8 @@ use message::{
         Destination,
         Event,
     },
-    payload::Ack,
+    Ack,
     BytesWrap,
-    Message,
 };
 
 use crate::{
@@ -48,7 +47,7 @@ impl Default for StateMachine {
 
 async fn send_retry(
     msg: impl FnMut() -> BoxFuture<'static, message::Message<BytesWrap>>,
-) -> Result<Message<Ack>, serial::Error> {
+) -> Result<Ack, serial::Error> {
     // proportion of signal to be jittered, i.e. multiply the signal by a random sample in the range
     // [1 - JITTER_FACTOR, 1 + JITTER_FACTOR]
     const JITTER_FACTOR: f64 = 0.5;
