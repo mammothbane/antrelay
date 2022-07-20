@@ -11,17 +11,19 @@ mod magic_value;
 mod mission_epoch;
 pub mod payload;
 
+pub use bytes_wrap::BytesWrap;
+pub use checksum::Checksum;
+pub use downlink::Downlink;
+pub use header::Header;
+pub use header_packet::HeaderPacket;
+pub use magic_value::MagicValue;
+pub use mission_epoch::MissionEpoch;
+
 use crate::header::{
     Destination,
     Event,
     Server,
 };
-pub use bytes_wrap::BytesWrap;
-pub use checksum::Checksum;
-pub use header::Header;
-pub use header_packet::HeaderPacket;
-pub use magic_value::MagicValue;
-pub use mission_epoch::MissionEpoch;
 
 impl_checksum!(pub StandardCRC, u8, ::crc::CRC_8_SMBUS);
 

@@ -3,6 +3,7 @@ use crate::{
     Message,
 };
 
+/// All the message types we'll send back over the downlink.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum Downlink {
     Log(),

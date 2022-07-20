@@ -1,3 +1,8 @@
+use std::{
+    fmt::Display,
+    sync::Arc,
+};
+
 use actix::{
     fut::ActorFutureExt,
     prelude::*,
@@ -7,20 +12,26 @@ use actix_broker::{
     SystemBroker,
 };
 use futures::future::BoxFuture;
-use packed_struct::PackedStructSlice;
-use std::{
-    fmt::Display,
-    sync::Arc,
-};
+
+use message::Downlink as DownlinkMsg;
+use net::DatagramSender;
 
 use crate::{
     ground,
     serial,
 };
-use net::DatagramSender;
 
 pub type StaticSender<E> = dyn DatagramSender<Error = E> + 'static + Unpin + Send + Sync;
 pub type BoxSender<E> = Arc<StaticSender<E>>;
+
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    #[error(transparent)]
+    Serialize(#[from] bincode::Error),
+
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
+}
 
 pub struct Downlink<E> {
     make_socket: Box<dyn Fn() -> BoxFuture<'static, Option<BoxSender<E>>>>,
@@ -80,21 +91,29 @@ macro_rules! imp {
         {
             type Result = ();
 
+            // TODO(msg encoding)
+            #[::tracing::instrument(skip_all, level = "trace")]
             fn handle(&mut self, msg: $msg, ctx: &mut Self::Context) -> Self::Result {
-                let b = ($extract)(&msg);
+                let result: Result<Vec<u8>, Error> = try {
+                    let d: ::message::Downlink = ($extract)(&msg);
+                    let encoded = ::bincode::serialize(&d, ::bincode::Infinite)?;
+                    let compressed = ::util::brotli_compress(&encoded)?;
 
-                let compressed = match ::util::brotli_compress(&b) {
-                    Ok(compressed) => compressed,
+                    compressed
+                };
+
+                let result = match result {
+                    Ok(result) => result,
                     Err(e) => {
-                        tracing::error!(error = %e, "failed to compress downlink data");
+                        tracing::error!(error = %e, ty = stringify!($msg), "serializing downlink data");
                         return;
-                    },
+                    }
                 };
 
                 let sender = self.sender.as_ref().unwrap().clone();
 
                 ctx.wait(fut::wrap_future(async move {
-                    if let Err(e) = sender.send(&compressed).await {
+                    if let Err(e) = sender.send(&result).await {
                         tracing::error!(error = %e, "sending packet to downlink");
                     }
                 }));
@@ -103,25 +122,15 @@ macro_rules! imp {
     };
 }
 
-imp!(serial::raw::DownPacket, |msg: &serial::raw::DownPacket| msg.0.clone());
-imp!(serial::raw::UpPacket, |msg: &serial::raw::UpPacket| msg.0.clone());
-imp!(ground::UpPacket, |msg: &ground::UpPacket| msg.0.clone());
+imp!(serial::raw::DownPacket, |msg: &serial::raw::DownPacket| DownlinkMsg::SerialDownlinkRaw(
+    msg.0.clone().into()
+));
+imp!(serial::raw::UpPacket, |msg: &serial::raw::UpPacket| DownlinkMsg::SerialUplinkRaw(
+    msg.0.clone().into()
+));
+imp!(ground::UpPacket, |msg: &ground::UpPacket| DownlinkMsg::UplinkMirror(msg.0.clone().into()));
 
-imp!(serial::UpMessage, |msg: &serial::UpMessage| {
-    match msg.0.pack_to_vec() {
-        Ok(v) => v,
-        Err(e) => {
-            tracing::error!(error = %e, "packing serial message");
-            vec![]
-        },
-    }
-});
+imp!(serial::UpMessage, |msg: &serial::UpMessage| { DownlinkMsg::SerialUplink(msg.0.clone()) });
 imp!(serial::DownMessage, |msg: &serial::DownMessage| {
-    match msg.0.pack_to_vec() {
-        Ok(v) => v,
-        Err(e) => {
-            tracing::error!(error = %e, "packing serial message");
-            vec![]
-        },
-    }
+    DownlinkMsg::SerialDownlink(msg.0.clone())
 });
