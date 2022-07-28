@@ -75,10 +75,6 @@ around `actix`.
 - `runtime/src/state_machine.rs` implements the state machine that the frontend runs to control the
   ant.
 
-
-### `tracing`
-Defunct. To be removed when I implement log downlink.
-
 ### `util`
 Various location-agnostic utilities.
 

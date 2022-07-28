@@ -13,7 +13,6 @@ members = [
     "message",
     "util",
     "net",
-    "tracing",
 ]
 
 [dependencies]
@@ -21,7 +20,6 @@ util = { path = "./util", package = "antrelay-util" }
 message = { path = "./message", package = "antrelay-message" }
 codec = { path = "./codec", package = "antrelay-codec" }
 net = { path = "./net", package = "antrelay-net" }
-traceutil = { path = "./tracing", package = "antrelay-tracing" }
 runtime = { path = "./runtime", package = "antrelay-runtime" }
 
 futures = "0.3"
