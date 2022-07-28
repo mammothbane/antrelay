@@ -30,9 +30,9 @@ fn mk_level_filter() -> EnvFilter {
         let default_str = {
             cfg_if::cfg_if! {
                 if #[cfg(not(debug_assertions))] {
-                    "warn,antrelay=info,relay=info,antrelay-net=info,antrelay-tracing=info,antrelay-runtime=info,antrelay-codec=info,antrelay-message=info,antrelay-util=info"
+                    "warn,antrelay=info,relay=info,antrelay-net=info,antrelay-runtime=info,antrelay-codec=info,antrelay-message=info,antrelay-util=info"
                 } else {
-                    "info,antrelay=debug,relay=debug,antrelay-net=debug,antrelay-tracing=debug,antrelay-runtime=debug,antrelay-codec=debug,antrelay-message=debug,antrelay-util=debug"
+                    "info,antrelay=debug,relay=debug,antrelay-net=debug,antrelay-runtime=debug,antrelay-codec=debug,antrelay-message=debug,antrelay-util=debug"
                 }
             }
         };

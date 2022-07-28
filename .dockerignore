@@ -5,7 +5,6 @@
 !/net/
 !/runtime/
 !/src/
-!/tracing/
 !/util/
 
 !/Cargo.toml

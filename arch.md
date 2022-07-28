@@ -44,7 +44,7 @@ also compressed, but the `runtime` handles this.)
 
 #### Time: `MissionEpoch`
 Our message format specifies that timestamps will be 4 bytes and expressed in milliseconds. This
-gives us just shy of 50 days of resolution before we wrap. As such, we chose to picking a canonical
+gives us just shy of 50 days of resolution before we wrap. As such, we chose to pick a canonical
 reference instant for the mission, ideally set just prior to a firm launch date. E.g., if we know
 that the launch is on 1/1/2023, we would set the epoch to midnight UTC on 12/31/2022.
 
