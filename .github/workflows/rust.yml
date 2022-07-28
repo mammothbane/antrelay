@@ -1,0 +1,38 @@
+name: rust
+
+on:
+  push:
+    branches: master
+  pull_request:
+    branches: master
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  rust:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows]
+        
+    runs-on: ${{ matrix.os }}
+
+    steps:
+    - uses: actions/checkout@v3
+    - name: check
+      run: cargo check --all --tests --verbose
+    - name: test
+      run: cargo test --all --verbose
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - uses: docker/setup-buildx-action@v2
+    - name: build
+      uses: docker/build-push-action@v3
+      with:
+        push: false
+        tags: antrelay:latest
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
