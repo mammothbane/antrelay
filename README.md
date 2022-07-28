@@ -62,6 +62,24 @@ this is with
 $ socat -d -d pty,raw,echo=0 pty,raw,echo=0
 ```
 
+## docker (@LO)
+
+A `docker run` oneliner:
+
+```console
+$ docker run \
+    -v socket_dir:/sockets:rw \
+    -v /dev/SERIAL_TTY:/serial:rw \
+    --restart on-failure \
+    antrelay:latest \
+    --serial-port /serial \
+    --baud 115200 \
+    --uplink /sockets/uplink \
+    --downlink /sockets/downlink
+```
+
+(Plus whatever is required to give us `dialout`/access to the serial port on the host system)
+
 # todo
 - restart socket and serial connections on io error
 - logging for the frontend software
