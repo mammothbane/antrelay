@@ -26,7 +26,6 @@ use crate::{
 pub enum State {
     FlightIdle,
     PingCentralStation,
-    StartBLE,
     PollAnt,
     AntRun,
 }
@@ -73,16 +72,16 @@ async fn ping_cs() {
 
 async fn ping_ant() {
     loop {
-        let result = send_retry(|| {
-            Box::pin(
-                async move { message::command(&params().await, Destination::Ant, Event::AntPing) },
-            )
-        })
-        .await;
+        let result = serial::await_relay(Some(Duration::from_millis(750))).await;
 
-        if let Err(e) = result {
+        let msg = message::command(&params().await, Destination::Ant, Event::AntPing);
+        serial::do_send(msg).await;
+
+        if let Err(e) = result.await {
             tracing::error!(error = %e, "pinging ant");
         }
+
+        tokio::time::sleep(Duration::from_secs(1)).await;
     }
 }
 
@@ -114,32 +113,53 @@ impl StateMachine {
                         )
                     })
                 }))
-                .map(|result, act: &mut Self, _| {
+                .map(|result, act: &mut Self, ctx| {
                     if let Err(e) = result {
                         tracing::error!(error = %e, "failed to send garage open to central station");
                         return;
                     }
 
-                    act.state = State::StartBLE;
+                    act.running_task = Some(ctx.spawn(fut::wrap_future(ping_ant())));
+                    act.state = State::PollAnt;
                 });
 
                 ctx.wait(fut);
             },
 
-            (State::StartBLE, Event::CSGarageOpen) => {
-                self.running_task = Some(ctx.spawn(fut::wrap_future(ping_ant())));
+            (State::PollAnt, Event::FERoverStop) => {
+                let fut = fut::wrap_future(async move {
+                    send_retry(|| {
+                        Box::pin(async move {
+                            message::command(&params().await, Destination::Ant, Event::AntStart)
+                        })
+                    })
+                    .await?;
 
-                self.state = State::PollAnt;
+                    Ok(()) as Result<(), serial::Error>
+                })
+                .map(|result, act: &mut Self, _| {
+                    if let Err(e) = result {
+                        tracing::error!(error = %e, "failed to transition ant to running");
+                        return;
+                    }
+
+                    act.state = State::AntRun;
+                });
+
+                ctx.wait(fut);
             },
 
-            (State::PollAnt, Event::FERoverStop) => {
-                let fut = fut::wrap_future(send_retry(|| {
-                    Box::pin(async move {
-                        message::command(&params().await, Destination::Ant, Event::AntCalibrate)
+            (State::AntRun, Event::FERoverMove) => {
+                let fut = fut::wrap_future(async move {
+                    send_retry(|| {
+                        Box::pin(async move {
+                            message::command(&params().await, Destination::Ant, Event::AntStart)
+                        })
                     })
-                }))
-                .map(|_result, act: &mut Self, _| {
-                    act.state = State::AntRun;
+                })
+                .map(|_result, act: &mut Self, ctx| {
+                    act.running_task = Some(ctx.spawn(fut::wrap_future(ping_ant())));
+                    act.state = State::PollAnt;
                 });
 
                 ctx.wait(fut);

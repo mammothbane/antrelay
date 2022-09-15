@@ -42,7 +42,7 @@ impl Header {
 
         result.ty = MessageType {
             disposition: Disposition::Ack,
-            valid:       false,
+            invalid:     false,
             event:       Event::FEPing,
         };
 
@@ -60,7 +60,7 @@ impl Header {
 
             ty: MessageType {
                 disposition: Disposition::Command,
-                valid: false,
+                invalid: false,
                 event,
             },
         }
@@ -76,7 +76,7 @@ impl Header {
 
             ty: MessageType {
                 disposition: Disposition::Command,
-                valid: false,
+                invalid: false,
                 event,
             },
         }
@@ -98,7 +98,7 @@ impl Header {
             "{:?}{}{}",
             self.ty.event,
             (self.ty.disposition == Disposition::Ack).then(|| "[Ack]").unwrap_or(""),
-            self.ty.valid.then(|| "[Invalid]").unwrap_or(""),
+            self.ty.invalid.then(|| "[Invalid]").unwrap_or(""),
         );
 
         let ts = self.timestamp.conv::<chrono::DateTime<chrono::Utc>>();
@@ -133,7 +133,7 @@ pub struct MessageType {
     pub disposition: Disposition,
 
     #[packed_field(size_bits = "1")]
-    pub valid: bool,
+    pub invalid: bool,
 
     #[packed_field(size_bits = "6", ty = "enum")]
     pub event: Event,
@@ -157,7 +157,9 @@ pub enum Event {
     AntPing         = 0x01,
     AntStart        = 0x02,
     AntCalibrate    = 0x03,
-    AntPowerOff     = 0x04,
+    AntOTA          = 0x04,
+    AntStop         = 0x05,
+    AntPowerOff     = 0x06,
 
     CSGarageOpen    = 0x11,
     CSRoverStop     = 0x12,
@@ -220,10 +222,10 @@ mod test {
     }
 
     prop_compose! {
-        fn type_strategy()(disposition in direction_strategy(), valid in any::<bool>(), event in event_strategy()) -> MessageType {
+        fn type_strategy()(disposition in direction_strategy(), invalid in any::<bool>(), event in event_strategy()) -> MessageType {
             MessageType {
                 disposition,
-                valid,
+                invalid,
                 event,
             }
         }

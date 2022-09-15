@@ -1,4 +1,7 @@
-use std::time::Duration;
+use std::{
+    future::Future,
+    time::Duration,
+};
 
 use actix::prelude::*;
 use actix_broker::{
@@ -9,7 +12,10 @@ use actix_broker::{
 use futures::future::BoxFuture;
 use tokio::sync::oneshot;
 
-use message::UniqueId;
+use message::{
+    header::Event,
+    UniqueId,
+};
 
 use crate::{
     serial,
@@ -20,9 +26,14 @@ use crate::{
 #[rtype(result = "Option<message::Ack>")]
 pub struct Request(pub message::Message);
 
+#[derive(Debug, Clone, PartialEq, Message)]
+#[rtype(result = "Option<message::Message>")]
+pub struct AwaitRelay;
+
 #[derive(Default)]
 pub struct Commander {
-    requests: fnv::FnvHashMap<UniqueId, oneshot::Sender<message::Ack>>,
+    requests:       fnv::FnvHashMap<UniqueId, oneshot::Sender<message::Ack>>,
+    awaiting_relay: Vec<oneshot::Sender<message::Message>>,
 }
 
 #[derive(Debug, Clone, thiserror::Error)]
@@ -33,10 +44,14 @@ pub enum Error {
     #[error("request was dropped")]
     RequestDropped,
 
-    #[error("invalid response checksum")]
+    #[error("original command checksum was invalid")]
     InvalidChecksum,
+
+    #[error("response indicated command checksum was invalid")]
+    InvalidAckChecksum,
 }
 
+#[tracing::instrument(skip(message, retry_strategy), err(Display))]
 pub async fn send_retry(
     mut message: impl FnMut() -> BoxFuture<'static, message::Message>,
     request_timeout: Duration,
@@ -47,7 +62,13 @@ pub async fn send_retry(
 
         async move {
             let msg = message.await;
-            send(msg, Some(request_timeout)).await
+            let result = send(msg, Some(request_timeout)).await;
+
+            if let Err(ref e) = result {
+                tracing::warn!(error = %e, "message send failed");
+            }
+
+            result
         }
     })
     .await
@@ -66,11 +87,38 @@ pub async fn send(
     };
 
     let resp: message::Ack = resp?.ok_or_else(|| Error::RequestDropped)?;
-    if !resp.as_ref().header.ty.valid || !resp.as_ref().payload.as_ref().header.ty.valid {
+
+    if resp.as_ref().header.ty.invalid {
+        return Err(Error::InvalidAckChecksum);
+    }
+
+    if resp.as_ref().payload.as_ref().header.ty.invalid {
         return Err(Error::InvalidChecksum);
     }
 
     Ok(resp)
+}
+
+#[inline]
+pub async fn await_relay(
+    timeout: Option<Duration>,
+) -> impl Future<Output = Result<message::Message, Error>> {
+    let req = OverrideRegistry::query::<AwaitRelay, Commander>().await.send(AwaitRelay);
+
+    return async move {
+        let resp = match timeout {
+            Some(dur) => req.timeout(dur).await,
+            None => req.await,
+        };
+
+        let resp: message::Message = resp?.ok_or_else(|| Error::RequestDropped)?;
+
+        if resp.as_ref().header.ty.invalid {
+            return Err(Error::InvalidAckChecksum);
+        }
+
+        Ok(resp)
+    };
 }
 
 #[inline]
@@ -99,6 +147,7 @@ impl Actor for Commander {
     #[tracing::instrument(skip_all)]
     fn started(&mut self, ctx: &mut Self::Context) {
         self.subscribe_async::<SystemBroker, serial::AckMessage>(ctx);
+        self.subscribe_async::<SystemBroker, serial::DownMessage>(ctx);
 
         ctx.run_interval(Duration::from_secs(5), |a, _ctx| {
             a.collect_garbage();
@@ -118,6 +167,33 @@ impl Handler<Request> for Commander {
         self.issue_sync::<SystemBroker, _>(serial::UpMessage(msg.0), ctx);
 
         Box::pin(async move { rx.await.ok() })
+    }
+}
+
+impl Handler<AwaitRelay> for Commander {
+    type Result = ResponseFuture<Option<message::Message>>;
+
+    fn handle(&mut self, _msg: AwaitRelay, _ctx: &mut Self::Context) -> Self::Result {
+        let (tx, rx) = oneshot::channel();
+        self.awaiting_relay.push(tx);
+
+        Box::pin(async move { rx.await.ok() })
+    }
+}
+
+impl Handler<serial::DownMessage> for Commander {
+    type Result = ();
+
+    fn handle(&mut self, msg: serial::DownMessage, _ctx: &mut Self::Context) -> Self::Result {
+        if msg.0.as_ref().header.ty.event != Event::CSRelay {
+            return;
+        }
+
+        self.awaiting_relay.drain(..).for_each(|tx| {
+            if let Err(_) = tx.send(msg.0.clone()) {
+                tracing::warn!("listener dropped for relay message");
+            }
+        })
     }
 }
 
