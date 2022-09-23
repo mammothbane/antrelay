@@ -43,6 +43,17 @@ where
     }
 }
 
+impl<Header, Payload> PackedStructInfo for HeaderPacket<Header, Payload>
+where
+    Header: PackedStructInfo,
+    Payload: PackedStructInfo,
+{
+    #[inline]
+    fn packed_bits() -> usize {
+        Header::packed_bits() + Payload::packed_bits()
+    }
+}
+
 impl<Header, Payload> PackedStructSlice for HeaderPacket<Header, Payload>
 where
     Header: PackedStructInfo + PackedStructSlice,
@@ -93,18 +104,25 @@ where
     }
 }
 
-impl Display for HeaderPacket<crate::Header, crate::BytesWrap> {
+impl Display for HeaderPacket<crate::Header, crate::SourceInfo> {
     #[inline]
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} / payload: 0x{}", self.header.display(), hex::encode(self.payload.as_ref()))
+        write!(f, "{} / {}", self.header.display(), self.payload)
     }
 }
 
-impl<T> Display for HeaderPacket<crate::Header, T>
+impl Display for HeaderPacket<crate::HeaderWithSource, crate::BytesWrap> {
+    #[inline]
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} / payload: 0x{}", self.header, hex::encode(self.payload.as_ref()))
+    }
+}
+
+impl<T> Display for HeaderPacket<crate::HeaderWithSource, T>
 where
     T: Display,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} / payload: {}", self.header.display(), self.payload)
+        write!(f, "{} / payload: {}", self.header, self.payload)
     }
 }

@@ -11,7 +11,6 @@ use message::{
         Destination,
         Event,
     },
-    Ack,
     BytesWrap,
 };
 
@@ -46,7 +45,7 @@ impl Default for StateMachine {
 
 async fn send_retry(
     msg: impl FnMut() -> BoxFuture<'static, message::Message<BytesWrap>>,
-) -> Result<Ack, serial::Error> {
+) -> Result<message::Message, serial::Error> {
     // proportion of signal to be jittered, i.e. multiply the signal by a random sample in the range
     // [1 - JITTER_FACTOR, 1 + JITTER_FACTOR]
     const JITTER_FACTOR: f64 = 0.5;
@@ -72,12 +71,10 @@ async fn ping_cs() {
 
 async fn ping_ant() {
     loop {
-        let result = serial::await_relay(Some(Duration::from_millis(750))).await;
-
         let msg = message::command(&params().await, Destination::Ant, Event::AntPing);
-        serial::do_send(msg).await;
+        let result = serial::send(msg, Some(Duration::from_millis(750))).await;
 
-        if let Err(e) = result.await {
+        if let Err(e) = result {
             tracing::error!(error = %e, "pinging ant");
         }
 
@@ -214,7 +211,7 @@ impl Handler<ground::UpCommand> for StateMachine {
 
     #[tracing::instrument(skip_all, fields(msg = %msg.0))]
     fn handle(&mut self, msg: ground::UpCommand, ctx: &mut Self::Context) -> Self::Result {
-        let event = msg.0.as_ref().header.ty.event;
+        let event = msg.0.as_ref().header.header.ty.event;
 
         if let Err(e) = self.step(event, ctx) {
             tracing::error!(error = %e, "advancing state machine");

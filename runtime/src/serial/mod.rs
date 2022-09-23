@@ -14,11 +14,8 @@ use bytes::BytesMut;
 use packed_struct::PackedStructSlice;
 
 use message::{
-    header::{
-        Event,
-        MessageType,
-    },
     Message,
+    SourceInfo,
 };
 
 mod commander;
@@ -36,7 +33,7 @@ pub struct DownMessage(pub Message);
 
 #[derive(Clone, Debug, PartialEq, Message, derive_more::Into, derive_more::AsRef)]
 #[rtype(result = "()")]
-pub struct AckMessage(pub message::Ack);
+pub struct AckMessage(pub Message);
 
 pub struct Serial;
 
@@ -87,29 +84,21 @@ impl Handler<raw::DownPacket> for Serial {
         let inner = unpacked.as_ref();
         let header = &inner.header;
 
-        let _span =
-            tracing::info_span!("serial message decoded", event = ?header.ty.event).entered();
+        let _span = tracing::info_span!("serial message decoded", event = ?header.header.ty.event)
+            .entered();
 
-        match header.ty {
-            MessageType {
-                event: Event::CSPing | Event::CSRelay,
-                ..
-            } => {
-                tracing::debug!(payload = %hex::encode(&*inner.payload.as_ref()), "serial message is a relay/ping packet")
+        let (unique_id, crc) = match inner.header.payload {
+            SourceInfo::Info {
+                ref header,
+                checksum,
+            } => (header.unique_id(), checksum),
+            SourceInfo::Empty => {
+                tracing::trace!("message has no source");
+                return;
             },
-            _ => {
-                let ack = match inner.payload_into::<Message>() {
-                    Ok(ack) => Message::new(ack),
-                    Err(e) => {
-                        tracing::warn!(error = %e, "interpreting payload as ack message");
-                        return;
-                    },
-                };
+        };
 
-                tracing::info!(unique_id = %ack.as_ref().header.unique_id(), "decoded acked serial command");
-
-                self.issue_sync::<SystemBroker, _>(AckMessage(ack), ctx);
-            },
-        }
+        tracing::info!(unique_id = %inner.header.header.unique_id(), response_to = ?unique_id, orig_crc = ?crc, "decoded acked serial command");
+        self.issue_sync::<SystemBroker, _>(AckMessage(unpacked), ctx);
     }
 }
