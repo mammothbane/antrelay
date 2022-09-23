@@ -19,7 +19,7 @@
     };
   };
 
-  description = "lunar relay";
+  description = "relay for astroant";
 
   outputs = {
     self,
@@ -67,7 +67,7 @@
       inherit (pkgs) lib;
 
       pkg = naersk.buildPackage {
-        pname = "lunarrelay";
+        pname = "antrelay";
         version = self.rev or "dirty";
 
         target = "x86_64-unknown-linux-musl";
@@ -187,7 +187,7 @@
 
       defaultApp = {
         type = "app";
-        program = "${pkg}/bin/lunarrelay";
+        program = "${pkg}/bin/antrelay";
       };
     })
   );
