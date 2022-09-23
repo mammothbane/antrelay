@@ -28,6 +28,8 @@
     ...
   } @ inputs: (flake-utils.lib.eachDefaultSystem (system:
     let
+      cargoToml = builtins.fromTOML (builtins.readFile ./Cargo.toml);
+
       pkgs = import nixpkgs {
         inherit system;
 
@@ -78,12 +80,21 @@
 
           in path: type: let
             relPath = lib.removePrefix basePath path;
+
+            isMember = builtins.any
+              (member:
+                relPath == member ||
+                lib.hasPrefix member relPath ||
+                lib.hasPrefix "${member}/" relPath)
+              cargoToml.workspace.members;
+
             result =
               relPath == "Cargo.lock" ||
               relPath == "Cargo.toml" ||
               relPath == "build.rs" ||
               relPath == "src" ||
-              lib.hasPrefix "src/" relPath
+              lib.hasPrefix "src/" relPath ||
+              isMember
               ;
 
           in result;
