@@ -17,6 +17,7 @@ mod header_packet;
 mod magic_value;
 mod mission_epoch;
 pub mod payload;
+mod source_info;
 
 pub use bytes_wrap::BytesWrap;
 pub use checksum::Checksum;
@@ -25,6 +26,7 @@ pub use header::Header;
 pub use header_packet::HeaderPacket;
 pub use magic_value::MagicValue;
 pub use mission_epoch::MissionEpoch;
+pub use source_info::SourceInfo;
 
 use crate::header::{
     Destination,
@@ -33,9 +35,11 @@ use crate::header::{
 
 impl_checksum!(pub StandardCRC, u8, ::crc::CRC_8_SMBUS);
 
+pub type HeaderWithSource = HeaderPacket<Header, SourceInfo>;
+
 pub type WithCRC<T, CRC = StandardCRC> = crc::WithCRC<T, CRC>;
-pub type Message<T = BytesWrap, CRC = StandardCRC> = WithCRC<HeaderPacket<Header, T>, CRC>;
-pub type Ack = Message<Message>;
+pub type Message<T = BytesWrap, CRC = StandardCRC> =
+    WithCRC<HeaderPacket<HeaderWithSource, T>, CRC>;
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct UniqueId {
@@ -56,17 +60,12 @@ pub struct Params {
 }
 
 #[inline]
-pub fn new<T>(header: Header, t: T) -> Message<T, StandardCRC> {
-    Message::new(HeaderPacket {
-        header,
-        payload: t,
-    })
-}
-
-#[inline]
 pub fn command(env: &Params, dest: Destination, event: Event) -> Message<BytesWrap, StandardCRC> {
     Message::new(HeaderPacket {
-        header:  Header::command(env, dest, event),
+        header:  HeaderPacket {
+            header:  Header::command(env, dest, event),
+            payload: SourceInfo::Empty,
+        },
         payload: BytesWrap::from(&[0]),
     })
 }
