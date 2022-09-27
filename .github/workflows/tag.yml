@@ -1,0 +1,36 @@
+name: tag
+
+on:
+  push:
+    branches:
+      - master
+
+    paths:
+      - Cargo.toml
+
+  workflow_dispatch: {}
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - run: |
+          set -euo pipefail
+
+          version=$(sed -n -re 's/^version\s+=\s+"(.*)"/\1/p' Cargo.toml)
+          version="v$version"
+          echo "found current version $version"
+
+          echo "git lookup:"
+
+          if git rev-parse "$version"; then
+            echo 'tag already exists'
+            exit 0
+          fi
+
+          git tag "$version"
+          git push --tags
