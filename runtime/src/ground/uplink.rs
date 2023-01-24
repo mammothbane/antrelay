@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::io;
 
 use actix::prelude::*;
 use actix_broker::{
@@ -15,20 +15,17 @@ use packed_struct::PackedStructSlice;
 
 use crate::ground;
 
-type StaticReceiver<E> = dyn net::DatagramReceiver<Error = E> + 'static + Unpin + Send + Sync;
+type StaticReceiver = dyn net::DatagramReceiver + 'static + Unpin + Send + Sync;
 
-pub struct Uplink<E> {
-    pub make_socket: Box<dyn Fn() -> BoxFuture<'static, Option<Box<StaticReceiver<E>>>>>,
+pub struct Uplink {
+    pub make_socket: Box<dyn Fn() -> BoxFuture<'static, Option<Box<StaticReceiver>>>>,
 }
 
 #[derive(Message)]
 #[rtype(result = "()")]
-pub struct PacketResult<E>(Result<ground::UpPacket, E>);
+pub struct PacketResult(io::Result<ground::UpPacket>);
 
-impl<E> Actor for Uplink<E>
-where
-    E: Display + 'static,
-{
+impl Actor for Uplink {
     type Context = Context<Self>;
 
     #[tracing::instrument(skip_all)]
@@ -53,7 +50,7 @@ where
                         let count: usize = recv.recv(buf.as_mut()).await?;
                         let ret = buf.split_to(count).freeze();
 
-                        Ok(Some((ground::UpPacket(ret), (recv, buf))))
+                        Ok(Some((ground::UpPacket(ret), (recv, buf)))) as io::Result<_>
                     })
                     .map(PacketResult);
 
@@ -64,17 +61,16 @@ where
     }
 }
 
-impl<E> Supervised for Uplink<E> where Self: Actor {}
+impl Supervised for Uplink where Self: Actor {}
 
-impl<E> Handler<PacketResult<E>> for Uplink<E>
+impl Handler<PacketResult> for Uplink
 where
     Self: Actor,
     Self::Context: AsyncContext<Self>,
-    E: Display + 'static,
 {
     type Result = ();
 
-    fn handle(&mut self, item: PacketResult<E>, ctx: &mut Self::Context) {
+    fn handle(&mut self, item: PacketResult, ctx: &mut Self::Context) {
         let pkt = match item.0 {
             Ok(pkt) => pkt,
             Err(e) => {

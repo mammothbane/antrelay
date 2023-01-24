@@ -122,7 +122,6 @@ async fn read_downlink<Socket>(
 ) -> eyre::Result<()>
 where
     Socket: DatagramReceiver + Send + Sync,
-    Socket::Error: std::error::Error + Send + Sync + 'static,
 {
     let mut buf = vec![0u8; 8192];
 

@@ -1,5 +1,5 @@
 use std::{
-    fmt::Display,
+    io,
     sync::Arc,
 };
 
@@ -21,8 +21,8 @@ use crate::{
     serial,
 };
 
-pub type StaticSender<E> = dyn DatagramSender<Error = E> + 'static + Unpin + Send + Sync;
-pub type BoxSender<E> = Arc<StaticSender<E>>;
+pub type StaticSender = dyn DatagramSender + 'static + Unpin + Send + Sync;
+pub type BoxSender = Arc<StaticSender>;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -30,16 +30,16 @@ pub enum Error {
     Serialize(#[from] bincode::Error),
 
     #[error(transparent)]
-    Io(#[from] std::io::Error),
+    Io(#[from] io::Error),
 }
 
-pub struct Downlink<E> {
-    make_socket: Box<dyn Fn() -> BoxFuture<'static, Option<BoxSender<E>>>>,
-    sender:      Option<BoxSender<E>>,
+pub struct Downlink {
+    make_socket: Box<dyn Fn() -> BoxFuture<'static, Option<BoxSender>>>,
+    sender:      Option<BoxSender>,
 }
 
-impl<E> Downlink<E> {
-    pub fn new(make_socket: Box<dyn Fn() -> BoxFuture<'static, Option<BoxSender<E>>>>) -> Self {
+impl Downlink {
+    pub fn new(make_socket: Box<dyn Fn() -> BoxFuture<'static, Option<BoxSender>>>) -> Self {
         Self {
             make_socket,
             sender: None,
@@ -47,10 +47,7 @@ impl<E> Downlink<E> {
     }
 }
 
-impl<E> Actor for Downlink<E>
-where
-    E: Display + 'static,
-{
+impl Actor for Downlink {
     type Context = Context<Self>;
 
     #[tracing::instrument(skip_all)]
@@ -74,15 +71,56 @@ where
             a.subscribe_async::<SystemBroker, serial::UpMessage>(ctx);
             a.subscribe_async::<SystemBroker, ground::UpPacket>(ctx);
             a.subscribe_async::<SystemBroker, ground::UpCommand>(ctx);
-
-            // TODO: log packets
         });
 
         ctx.wait(run);
     }
 }
 
-impl<E> Supervised for Downlink<E> where Self: Actor {}
+impl Supervised for Downlink where Self: Actor {}
+
+#[inline]
+fn gen_handle<T>(
+    extract: impl Fn(&T) -> io::Result<message::Downlink> + 'static,
+    sender: Option<&BoxSender>,
+    ctx: &mut Context<Downlink>,
+    name: &'static str,
+    msg: T,
+) {
+    let result: Result<Vec<u8>, Error> = try {
+        let d: message::Downlink = extract(&msg)?;
+        let encoded = bincode::serialize(&d, ::bincode::Infinite)?;
+        let compressed = util::brotli_compress(&encoded)?;
+
+        compressed
+    };
+
+    let result = match result {
+        Ok(result) => result,
+        Err(e) => {
+            tracing::error!(error = %e, ty = %name, "serializing downlink data");
+            return;
+        },
+    };
+
+    let sender = sender.unwrap().clone();
+
+    ctx.wait(
+        fut::wrap_future(async move {
+            let result = result;
+            sender.send(&result).await
+        })
+        .map(|result, _a, ctx: &mut Context<Downlink>| {
+            if let Err(e) = result {
+                tracing::error!(error = %e, "sending packet to downlink");
+
+                if e.kind() == io::ErrorKind::NotConnected {
+                    ctx.stop();
+                }
+            }
+        }),
+    );
+}
 
 macro_rules! imp {
     ($msg:ty, $extract:expr) => {
@@ -93,13 +131,9 @@ macro_rules! imp {
     };
 
     ($msg:ty, $extract:expr, $display:expr) => {
-        impl<E> Handler<$msg> for Downlink<E>
-        where
-            E: Display + 'static,
-        {
+        impl Handler<$msg> for Downlink {
             type Result = ();
 
-            // TODO(msg encoding)
             #[::tracing::instrument(skip_all, fields(msg = %($display)(&msg)))]
             fn handle(&mut self, msg: $msg, ctx: &mut Self::Context) -> Self::Result {
                 let result: Result<Vec<u8>, Error> = try {
@@ -121,8 +155,15 @@ macro_rules! imp {
                 let sender = self.sender.as_ref().unwrap().clone();
 
                 ctx.wait(fut::wrap_future(async move {
-                    if let Err(e) = sender.send(&result).await {
+                    let result = result;
+                    sender.send(&result).await
+                }).map(|result, _a, ctx: &mut Context<Self>| {
+                    if let Err(e) = result {
                         tracing::error!(error = %e, "sending packet to downlink");
+
+                        if e.kind() == ::std::io::ErrorKind::NotConnected {
+                            ctx.stop();
+                        }
                     }
                 }));
             }

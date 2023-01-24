@@ -16,7 +16,6 @@ use structopt::StructOpt as _;
 use net::{
     DatagramOps,
     DatagramReceiver,
-    DatagramSender,
 };
 use runtime::{
     ground,
@@ -89,7 +88,7 @@ fn main() -> std::io::Result<()> {
                     match <antrelay::Socket as DatagramOps>::bind(&addr).await {
                         Ok(sock) => {
                             let b: Box<
-                                dyn DatagramReceiver<Error = <antrelay::Socket as DatagramReceiver>::Error>
+                                dyn DatagramReceiver
                                 + Unpin
                                 + Send
                                 + Sync
@@ -116,7 +115,7 @@ fn main() -> std::io::Result<()> {
 
                         Box::pin(async move {
                             match <antrelay::Socket as DatagramOps>::connect(&addr).await {
-                                Ok(sock) => Some(Arc::new(sock) as Arc<StaticSender<<antrelay::Socket as DatagramSender>::Error>>),
+                                Ok(sock) => Some(Arc::new(sock) as Arc<StaticSender>),
                                 Err(e) => {
                                     tracing::error!(?addr, error = %e, "unable to connect to downlink socket");
                                     None

@@ -27,7 +27,7 @@ impl DatagramOps for UnixDatagram {
 
     #[inline]
     #[tracing::instrument(fields(address = ?address), err(Display))]
-    async fn bind(address: &Self::Address) -> Result<Self, Self::Error> {
+    async fn bind(address: &Self::Address) -> io::Result<Self> {
         if let Some(parent) = address.parent() {
             tokio::fs::create_dir_all(parent).await?;
         }
