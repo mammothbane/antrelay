@@ -39,7 +39,11 @@ enum Command {
     GarageOpenPending,
     RoverStopping,
     RoverMoving,
+    PingAnt,
 
+    Start,
+
+    #[cfg(debug_assertions)]
     #[structopt(name = "ping")]
     DebugPing,
 }
@@ -97,6 +101,8 @@ async fn main() -> eyre::Result<()> {
             Command::GarageOpenPending => Event::FEGarageOpen,
             Command::RoverStopping => Event::FERoverStop,
             Command::RoverMoving => Event::FERoverMove,
+            Command::PingAnt => Event::AntPing,
+            Command::Start => Event::AntStart,
             #[cfg(debug_assertions)]
             Command::DebugPing => Event::DebugCSPing,
         };

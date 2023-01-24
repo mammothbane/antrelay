@@ -50,15 +50,15 @@ async fn send_retry(
     // [1 - JITTER_FACTOR, 1 + JITTER_FACTOR]
     const JITTER_FACTOR: f64 = 0.5;
 
-    let strategy = tokio_retry::strategy::ExponentialBackoff::from_millis(100)
-        .max_delay(Duration::from_secs(2))
+    let strategy = tokio_retry::strategy::ExponentialBackoff::from_millis(300)
+        .max_delay(Duration::from_secs(3))
         .map(|dur| {
             // make distribution even about 0, scale by factor, offset about 1
             let jitter = (rand::random::<f64>() - 0.5) * JITTER_FACTOR * 2. + 1.;
 
             dur.mul_f64(jitter)
         })
-        .take(10);
+        .take(5);
 
     serial::send_retry(msg, Duration::from_millis(750), strategy).await
 }
@@ -110,13 +110,13 @@ impl StateMachine {
                         )
                     })
                 }))
-                .map(|result, act: &mut Self, ctx| {
+                .map(|result, act: &mut Self, _ctx| {
                     if let Err(e) = result {
                         tracing::error!(error = %e, "failed to send garage open to central station");
                         return;
                     }
 
-                    act.running_task = Some(ctx.spawn(fut::wrap_future(ping_ant())));
+                    act.running_task = None;
                     act.state = State::PollAnt;
                 });
 
@@ -172,6 +172,18 @@ impl StateMachine {
                     );
 
                     serial::do_send(msg).await;
+                });
+
+                ctx.wait(fut);
+            },
+
+            (_, Event::AntPing) => {
+                let fut = fut::wrap_future(async move {
+                    let msg = message::command(&params().await, Destination::Ant, Event::AntPing);
+
+                    if let Err(e) = serial::send(msg, None).await {
+                        tracing::error!(error = %e, "sending ping to ant");
+                    }
                 });
 
                 ctx.wait(fut);
