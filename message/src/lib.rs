@@ -66,6 +66,6 @@ pub fn command(env: &Params, dest: Destination, event: Event) -> Message<BytesWr
             header:  Header::command(env, dest, event),
             payload: SourceInfo::Empty,
         },
-        payload: BytesWrap::from(&[0]),
+        payload: BytesWrap::from(&[]),
     })
 }
