@@ -43,7 +43,7 @@ impl<const C: u8> PackedStruct for MagicValue<C> {
     }
 }
 
-impl<const C: u8> const PackedStructInfo for MagicValue<C> {
+impl<const C: u8> PackedStructInfo for MagicValue<C> {
     #[inline]
     fn packed_bits() -> usize {
         std::mem::size_of::<u8>() * 8

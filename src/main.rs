@@ -2,7 +2,6 @@
 #![feature(never_type)]
 #![feature(proc_macro_hygiene)]
 #![feature(stmt_expr_attributes)]
-#![feature(let_else)]
 #![feature(iter_intersperse)]
 #![deny(unsafe_code)]
 
