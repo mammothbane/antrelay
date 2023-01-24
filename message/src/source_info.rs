@@ -12,7 +12,6 @@ use packed_struct::{
 
 use crate::Header;
 
-#[repr(packed)]
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct Info {
     pub header:   Header,
@@ -27,7 +26,7 @@ pub enum SourceInfo {
 
 impl SourceInfo {
     const EMPTY: [u8; Self::SIZE] = [0u8; Self::SIZE];
-    const SIZE: usize = std::mem::size_of::<Info>();
+    const SIZE: usize = 9;
 
     pub fn invalid(&self) -> bool {
         match self {
