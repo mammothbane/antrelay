@@ -21,7 +21,9 @@ lazy_static::lazy_static! {
 
 pub type Magic = MagicValue<0xeb>;
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash, PackedStruct, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Copy, Clone, Debug, PartialEq, Eq, Hash, PackedStruct, serde::Serialize, serde::Deserialize,
+)]
 #[packed_struct(bit_numbering = "msb0", size_bytes = "8", endian = "lsb")]
 pub struct Header {
     #[packed_field(size_bytes = "1")]

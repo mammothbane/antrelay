@@ -88,10 +88,10 @@ impl Handler<raw::DownPacket> for Serial {
             .entered();
 
         let (unique_id, crc) = match inner.header.payload {
-            SourceInfo::Info {
-                ref header,
-                checksum,
-            } => (header.unique_id(), checksum),
+            SourceInfo::Info(info) => {
+                let header = info.header;
+                (header.unique_id(), info.checksum)
+            },
             SourceInfo::Empty => {
                 tracing::trace!("message has no source");
                 return;

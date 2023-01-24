@@ -140,10 +140,10 @@ impl Handler<serial::AckMessage> for Commander {
 
     fn handle(&mut self, msg: serial::AckMessage, _ctx: &mut Self::Context) -> Self::Result {
         let msg_id = match msg.0.as_ref().header.payload {
-            SourceInfo::Info {
-                ref header,
-                ..
-            } => header.unique_id(),
+            SourceInfo::Info(info) => {
+                let header = info.header;
+                header.unique_id()
+            },
             SourceInfo::Empty => return,
         };
 
