@@ -44,70 +44,33 @@
     let
       cargoToml = builtins.fromTOML (builtins.readFile ./Cargo.toml);
 
-      pkgs = import nixpkgs {
-        inherit system;
+      overlays = [
+        (import inputs.rust-overlay)
 
-        overlays = [
-          (import inputs.rust-overlay)
-
-          (final: prev: let
-            local_rust = prev.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
-          in {
-            inherit local_rust;
-            crane-lib = (inputs.crane.mkLib final).overrideToolchain local_rust;
-            naersk = prev.callPackage inputs.naersk {
-              cargo = local_rust;
-              rustc = local_rust;
-            };
-          })
-        ];
-      };
-
-      deps = with pkgs; [
-        pkgconfig
+        (final: prev: let
+          local_rust = prev.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
+        in {
+          inherit local_rust;
+          crane-lib = (inputs.crane.mkLib final).overrideToolchain local_rust;
+        })
       ];
+
+      pkgs = import nixpkgs {
+        inherit system overlays;
+      };
 
       inherit (pkgs) lib;
 
-      pkg = pkgs.crane-lib.buildPackage {
-        pname = "antrelay";
-        version = self.rev or "dirty";
+      mk_pkg = target: cross_pkgs: with cross_pkgs; let
+        toolchain = cross_pkgs.pkgsBuildHost.local_rust.override {
+          targets = [ target ];
+        };
 
-        target = "x86_64-unknown-linux-musl";
+        crane-lib-cross = (inputs.crane.mkLib cross_pkgs).overrideToolchain toolchain;
 
-        src = lib.cleanSourceWith (with builtins; {
-          src = lib.cleanSource ./.;
-
-          filter = let
-            basePath = "${toString ./.}/";
-
-          in path: type: let
-            relPath = lib.removePrefix basePath path;
-
-            isMember = builtins.any
-              (member:
-                relPath == member ||
-                lib.hasPrefix member relPath ||
-                lib.hasPrefix "${member}/" relPath)
-              cargoToml.workspace.members;
-
-            result =
-              relPath == "Cargo.lock" ||
-              relPath == "Cargo.toml" ||
-              relPath == "build.rs" ||
-              relPath == "src" ||
-              lib.hasPrefix "src/" relPath ||
-              isMember
-              ;
-
-          in result;
-
-        });
-
-        cargoExtraArgs = "--target" "x86_64-unknown-linux-musl";
-
-        buildInputs = deps;
-        remapPathPrefix = true;
+      in cross_pkgs.callPackage ./. {
+        crane-lib = crane-lib-cross;
+        target = target;
       };
 
       docker = pkgs.dockerTools.buildImage {
@@ -127,12 +90,12 @@
           phases = [ "buildPhase" "installPhase" ];
 
           buildPhase = ''
-            ${pkgs.upx}/bin/upx --best --ultra-brute -o relay.upx ${pkg}/bin/relay
+            ${pkgs.upx}/bin/upx --best --ultra-brute -o relay.upx ${self.packages.bin}/bin/antrelay
           '';
 
           installPhase = ''
             install -d -m 0744 $out
-            install -m 0700 relay.upx $out/relay
+            install -m 0700 relay.upx $out/antrelay
           '';
         };
 
@@ -156,6 +119,7 @@
       devShell = pkgs.mkShell {
         buildInputs = (with pkgs; [
           local_rust
+          pkgconfig
 
           (pkgs.writeShellScriptBin "sockpair" ''
             exec ${pkgs.socat}/bin/socat -d -d pty,raw,echo=0 pty,raw,echo=0
@@ -171,7 +135,7 @@
               src = inputs.cobs-python;
             })
           ]))
-        ]) ++ deps;
+        ]);
 
         RUST_BACKTRACE = "1";
 
@@ -187,16 +151,93 @@
       };
 
       packages = {
-        bin = pkg;
+        default = self.packages.bin;
+        bin = mk_pkg "x86_64-unknown-linux-musl" pkgs.pkgsStatic;
+        aarch = mk_pkg "aarch64-unknown-linux-musl" pkgs.pkgsCross.aarch64-multiplatform-musl.pkgsStatic;
         inherit docker;
       };
 
-      defaultPackage = pkg;
+      legacyPackages = pkgs;
 
       defaultApp = {
         type = "app";
-        program = "${pkg}/bin/antrelay";
+        program = "${self.packages.bin}/bin/antrelay";
       };
     })
-  );
+  ) // {
+    nixosModules.default = { lib, pkgs, config, ... }: let
+      cfg = config.services.antrelay;
+    in {
+      options = with lib; {
+        services.antrelay = {
+          enable = mkEnableOption "antrelay";
+
+          package = mkOption {
+            type = types.package;
+            default = self.packages.${pkgs.system}.default;
+          };
+
+          serial_port = mkOption {
+            type = types.path;
+            default = "/dev/ttyUSB0";
+          };
+
+          baud = mkOption {
+            type = types.int;
+            default = 115200;
+          };
+
+          uplink = mkOption {
+            type = types.path;
+            default = "sockets/uplink";
+          };
+
+          downlink = mkOption {
+            type = types.path;
+            default = "sockets/downlink";
+          };
+        };
+      };
+
+      config = lib.mkIf cfg.enable {
+        systemd.services.antrelay = {
+          description = "antrelay service";
+
+          wantedBy = [
+            "multi-user.target"
+          ];
+
+          requires = [
+            "basic.target"
+          ];
+
+          after = [
+            "basic.target"
+          ];
+
+          unitConfig = {
+            StartLimitBurst = 3;
+            StartLimitIntervalSec = "1m";
+          };
+
+          serviceConfig = {
+            DynamicUser = true;
+
+            SupplementaryGroups = "dialout";
+
+            StandardInput = "null";
+            ExecStart = "${cfg.package}/bin/antrelay -s ${cfg.serial_port} -b ${toString cfg.baud} --uplink ${cfg.uplink} --downlink ${cfg.downlink}";
+
+            Restart = "always";
+            RestartSec = "10s";
+
+            TimeoutStopSec = "5s";
+
+            MemoryHigh = "80M";
+            MemoryMax = "100M";
+          };
+        };
+      };
+    };
+  };
 }
