@@ -1,6 +1,6 @@
 {
   inputs = {
-    nixpkgs.url = "github:nixos/nixpkgs/release-22.05";
+    nixpkgs.url = "github:nixos/nixpkgs/nixos-22.11";
     flake-utils.url = "github:numtide/flake-utils";
 
     nixpkgs-mozilla = {
@@ -8,9 +8,23 @@
       flake = false;
     };
 
-    naersk = {
-      url = "git+ssh://gitea@git.nathanperry.dev/fork/naersk";
-      inputs.nixpkgs.follows = "nixpkgs";
+    rust-overlay = {
+      url = "github:oxalica/rust-overlay/master";
+
+      inputs = {
+        nixpkgs.follows = "nixpkgs";
+        flake-utils.follows = "flake-utils";
+      };
+    };
+
+    crane = {
+      url = "github:ipetkov/crane";
+
+      inputs = {
+        nixpkgs.follows = "nixpkgs";
+        flake-utils.follows = "flake-utils";
+        rust-overlay.follows = "rust-overlay";
+      };
     };
 
     cobs-python = {
@@ -34,31 +48,20 @@
         inherit system;
 
         overlays = [
-          (import inputs.nixpkgs-mozilla)
+          (import inputs.rust-overlay)
 
-          (self: super: let
-            rust = (super.rustChannelOf {
-              channel = "nightly";
-              date = "2022-06-29";
-              sha256 = "nIAPO/mAqVWRFaMrgjJwbx/Mp9RXZqX92TLJBPlno0E=";
-            }).rust.override {
-              extensions = ["rust-src"];
-              targets = [
-                "x86_64-unknown-linux-musl"
-              ];
-            };
+          (final: prev: let
+            local_rust = prev.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
           in {
-            cargo = rust;
-            rustc = rust;
-
-            naerskRust = rust;
+            inherit local_rust;
+            crane-lib = (inputs.crane.mkLib final).overrideToolchain local_rust;
+            naersk = prev.callPackage inputs.naersk {
+              cargo = local_rust;
+              rustc = local_rust;
+            };
           })
         ];
       };
-
-      naersk = (inputs.naersk.lib."${system}".override {
-        inherit (pkgs) cargo rustc;
-      });
 
       deps = with pkgs; [
         pkgconfig
@@ -66,7 +69,7 @@
 
       inherit (pkgs) lib;
 
-      pkg = naersk.buildPackage {
+      pkg = pkgs.crane-lib.buildPackage {
         pname = "antrelay";
         version = self.rev or "dirty";
 
@@ -101,9 +104,7 @@
 
         });
 
-        cargoBuildOptions = super: super ++ [
-          "--target" "x86_64-unknown-linux-musl"
-        ];
+        cargoExtraArgs = "--target" "x86_64-unknown-linux-musl";
 
         buildInputs = deps;
         remapPathPrefix = true;
@@ -154,8 +155,7 @@
     in {
       devShell = pkgs.mkShell {
         buildInputs = (with pkgs; [
-          cargo
-          rustc
+          local_rust
 
           (pkgs.writeShellScriptBin "sockpair" ''
             exec ${pkgs.socat}/bin/socat -d -d pty,raw,echo=0 pty,raw,echo=0
@@ -173,9 +173,17 @@
           ]))
         ]) ++ deps;
 
-        RUST_SRC_PATH = "${pkgs.naerskRust}/lib/rustlib/src/rust";
-
         RUST_BACKTRACE = "1";
+
+        shellHook = with pkgs; ''
+          readonly ROOT=$(git rev-parse --show-toplevel)
+
+          mkdir -p $ROOT/.devlinks
+
+          rm -f $ROOT/.devlinks/rust
+
+          ln -sf ${local_rust} $ROOT/.devlinks/rust
+        '';
       };
 
       packages = {
