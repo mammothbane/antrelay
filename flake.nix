@@ -165,6 +165,10 @@
       };
     })
   ) // {
+    hydraJobs.x86_64-linux = {
+      packages = self.packages.x86_64-linux;
+    };
+
     nixosModules.default = { lib, pkgs, config, ... }: let
       cfg = config.services.antrelay;
     in {
