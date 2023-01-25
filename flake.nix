@@ -90,7 +90,7 @@
           phases = [ "buildPhase" "installPhase" ];
 
           buildPhase = ''
-            ${pkgs.upx}/bin/upx --best --ultra-brute -o relay.upx ${self.packages.bin}/bin/antrelay
+            ${pkgs.upx}/bin/upx --best --ultra-brute -o relay.upx ${self.packages.${system}.bin}/bin/antrelay
           '';
 
           installPhase = ''
@@ -151,7 +151,7 @@
       };
 
       packages = {
-        default = self.packages.bin;
+        default = self.packages.${system}.bin;
         bin = mk_pkg "x86_64-unknown-linux-musl" pkgs.pkgsStatic;
         aarch = mk_pkg "aarch64-unknown-linux-musl" pkgs.pkgsCross.aarch64-multiplatform-musl.pkgsStatic;
         inherit docker;
