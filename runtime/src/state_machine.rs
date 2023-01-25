@@ -1,10 +1,15 @@
+use std::{
+    sync::Once,
+    time::Duration,
+};
+
 use actix::prelude::*;
 use actix_broker::{
+    BrokerIssue,
     BrokerSubscribe,
     SystemBroker,
 };
 use futures::future::BoxFuture;
-use std::time::Duration;
 
 use message::{
     header::{
@@ -16,6 +21,7 @@ use message::{
 
 use crate::{
     ground,
+    ground::Log,
     params,
     serial,
 };
@@ -30,15 +36,17 @@ pub enum State {
 }
 
 pub struct StateMachine {
-    state:        State,
-    running_task: Option<SpawnHandle>,
+    state:          State,
+    running_task:   Option<SpawnHandle>,
+    subscribe_once: Once,
 }
 
 impl Default for StateMachine {
     fn default() -> Self {
         Self {
-            state:        State::FlightIdle,
-            running_task: None,
+            state:          State::FlightIdle,
+            running_task:   None,
+            subscribe_once: Once::new(),
         }
     }
 }
@@ -87,7 +95,7 @@ impl StateMachine {
     fn step(&mut self, event: Event, ctx: &mut Context<Self>) -> Result<(), serial::Error> {
         let mut old_handle = self.running_task.take();
 
-        tracing::debug!("handling state transition");
+        tracing::debug!("handling event");
         let init_state = self.state;
 
         match (init_state, event) {
@@ -181,12 +189,14 @@ impl StateMachine {
                 let fut = fut::wrap_future(async move {
                     let msg = message::command(&params().await, Destination::Ant, Event::AntPing);
 
-                    if let Err(e) = serial::send(msg, None).await {
-                        tracing::error!(error = %e, "sending ping to ant");
-                    }
+                    serial::do_send(msg).await;
                 });
 
                 ctx.wait(fut);
+            },
+
+            (_, Event::FEPing) => {
+                self.issue_sync::<SystemBroker, _>(Log("pong".into()), ctx);
             },
 
             (ref state, event) => {
@@ -213,7 +223,10 @@ impl Actor for StateMachine {
 
     #[tracing::instrument(skip_all)]
     fn started(&mut self, ctx: &mut Self::Context) {
-        self.subscribe_async::<SystemBroker, ground::UpCommand>(ctx);
+        self.subscribe_once.call_once(|| {
+            self.subscribe_async::<SystemBroker, ground::UpCommand>(ctx);
+        });
+
         tracing::info!("state machine controller started");
     }
 }

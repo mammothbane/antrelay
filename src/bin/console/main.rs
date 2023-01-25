@@ -40,6 +40,7 @@ enum Command {
     RoverStopping,
     RoverMoving,
     PingAnt,
+    PingFrontend,
 
     Start,
 
@@ -62,11 +63,29 @@ async fn main() -> eyre::Result<()> {
         }
     });
 
-    connect_once(&[opts.uplink.clone()]).await;
-    let sock = <antrelay::Socket as DatagramOps>::connect(&opts.uplink).await?;
-
     let mut w = w.compat();
 
+    loop {
+        connect_once(&[opts.uplink.clone()]).await;
+        let sock = <antrelay::Socket as DatagramOps>::connect(&opts.uplink).await?;
+
+        match io_loop(&mut w, &mut rl, sock).await {
+            Ok(()) => return Ok(()),
+            Err(e) => {
+                w.write_all(format!("error: {e}\n").as_bytes()).await?;
+            },
+        }
+    }
+}
+
+async fn io_loop<W>(
+    w: &mut W,
+    rl: &mut rustyline_async::Readline,
+    sock: antrelay::Socket,
+) -> eyre::Result<()>
+where
+    W: AsyncWrite + Unpin,
+{
     loop {
         w.flush().await?;
 
@@ -102,6 +121,7 @@ async fn main() -> eyre::Result<()> {
             Command::RoverStopping => Event::FERoverStop,
             Command::RoverMoving => Event::FERoverMove,
             Command::PingAnt => Event::AntPing,
+            Command::PingFrontend => Event::FEPing,
             Command::Start => Event::AntStart,
             #[cfg(debug_assertions)]
             Command::DebugPing => Event::DebugCSPing,
@@ -111,8 +131,6 @@ async fn main() -> eyre::Result<()> {
 
         let pkt = msg.pack_to_vec()?;
         sock.send(&pkt).await?;
-
-        w.write_all(format!("\n").as_bytes()).await?;
     }
 }
 
@@ -134,11 +152,10 @@ where
         let msg = bincode::deserialize::<Downlink>(&decompressed)?;
 
         let mut line = match msg {
-            Downlink::Log() => "LOG".to_owned().into_bytes(),
+            Downlink::Log(b) => format!("LOG\n\t{b}").as_bytes().to_vec(),
 
             Downlink::SerialDownlinkRaw(b) => bytes_format("SERIAL DOWN (BYTES)", b),
             Downlink::SerialUplinkRaw(b) => bytes_format("SERIAL UP (BYTES)", b),
-            Downlink::Direct(b) => bytes_format("DIRECT (BYTES", b),
             Downlink::UplinkMirror(b) => bytes_format("UPLINK (BYTES)", b),
 
             Downlink::SerialDownlink(m) => msg_format("SERIAL DOWN (MSG)", m),
@@ -146,7 +163,7 @@ where
             Downlink::UplinkInterpreted(m) => msg_format("UPLINK (MSG)", m),
         };
 
-        line.push(b'\n');
+        line.extend_from_slice(b"\n\n");
 
         output.write_all(&line).await?;
     }

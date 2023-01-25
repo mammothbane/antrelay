@@ -12,6 +12,7 @@ use actix_broker::{
 };
 use bytes::BytesMut;
 use packed_struct::PackedStructSlice;
+use std::sync::Once;
 
 use message::{
     Message,
@@ -35,14 +36,26 @@ pub struct DownMessage(pub Message);
 #[rtype(result = "()")]
 pub struct AckMessage(pub Message);
 
-pub struct Serial;
+pub struct Serial {
+    subscribe_once: Once,
+}
+
+impl Default for Serial {
+    fn default() -> Self {
+        Self {
+            subscribe_once: Once::new(),
+        }
+    }
+}
 
 impl Actor for Serial {
     type Context = Context<Self>;
 
     fn started(&mut self, ctx: &mut Self::Context) {
-        self.subscribe_async::<SystemBroker, UpMessage>(ctx);
-        self.subscribe_async::<SystemBroker, raw::DownPacket>(ctx);
+        self.subscribe_once.call_once(|| {
+            self.subscribe_async::<SystemBroker, UpMessage>(ctx);
+            self.subscribe_async::<SystemBroker, raw::DownPacket>(ctx);
+        });
     }
 }
 

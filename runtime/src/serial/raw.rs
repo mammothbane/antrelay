@@ -21,6 +21,10 @@ use futures::{
     SinkExt,
     StreamExt,
 };
+use std::{
+    sync::Once,
+    time::Duration,
+};
 use tokio::{
     io::{
         AsyncRead,
@@ -50,8 +54,9 @@ pub struct DownPacket(pub Bytes);
 type IO = (Box<dyn AsyncRead + Unpin>, Box<dyn AsyncWrite + Unpin>);
 
 pub struct RawIO {
-    make_io: Box<dyn Fn() -> BoxFuture<'static, Option<IO>>>,
-    tx:      Option<mpsc::UnboundedSender<Bytes>>,
+    make_io:        Box<dyn Fn() -> BoxFuture<'static, Option<IO>>>,
+    tx:             Option<mpsc::UnboundedSender<Bytes>>,
+    subscribe_once: Once,
 }
 
 impl RawIO {
@@ -59,6 +64,7 @@ impl RawIO {
         Self {
             make_io,
             tx: None,
+            subscribe_once: Once::new(),
         }
     }
 }
@@ -67,7 +73,7 @@ impl Actor for RawIO {
     type Context = Context<Self>;
 
     fn started(&mut self, ctx: &mut Self::Context) {
-        ctx.wait(fut::wrap_future((self.make_io)()).map(
+        let fut = fut::wrap_future((self.make_io)()).map(
             |result, a: &mut Self, ctx: &mut Context<Self>| {
                 let (r, w) = match result {
                     Some(io) => io,
@@ -86,11 +92,23 @@ impl Actor for RawIO {
                     let mut rx = UnboundedReceiverStream::new(rx).map(Ok);
                     let mut framed_write = framed_write;
 
-                    framed_write.send_all(&mut rx).await.unwrap();
+                    framed_write.send_all(&mut rx).await
+                }).map(|result, _a, ctx: &mut Context<RawIO>| {
+                    match result {
+                        Err(Error::Io(e)) => {
+                            tracing::error!(error = %e, "io error -- reconnecting to serial port");
+                            ctx.stop();
+                            return;
+                        }
+                        Err(e) => tracing::error!(error = %e),
+                        _ => {},
+                    }
                 }));
 
                 a.tx = Some(tx);
-                a.subscribe_async::<SystemBroker, UpPacket>(ctx);
+                a.subscribe_once.call_once(|| {
+                    a.subscribe_async::<SystemBroker, UpPacket>(ctx);
+                });
 
                 let framed_downlink = FramedRead::new(r, CobsCodec);
 
@@ -115,7 +133,9 @@ impl Actor for RawIO {
                         .finish(),
                 );
             },
-        ));
+        );
+
+        ctx.wait(fut);
     }
 }
 
@@ -133,7 +153,7 @@ impl Handler<UpPacket> for RawIO {
                 }
             },
             None => {
-                unreachable!();
+                tracing::error!("dropping packet -- serial actor restarting");
             },
         }
     }
@@ -143,8 +163,9 @@ impl Supervised for RawIO
 where
     Self: Actor,
 {
-    fn restarting(&mut self, _ctx: &mut <Self as Actor>::Context) {
+    fn restarting(&mut self, ctx: &mut <Self as Actor>::Context) {
         tracing::error!("serial connection restarting");
         self.tx = None;
+        ctx.wait(fut::wrap_future(tokio::time::sleep(Duration::from_millis(1000))));
     }
 }

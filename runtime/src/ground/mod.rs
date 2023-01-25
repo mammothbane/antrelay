@@ -15,3 +15,7 @@ pub struct DownPacket(pub Bytes);
 #[derive(Clone, Debug, PartialEq, Message, derive_more::Into, derive_more::AsRef)]
 #[rtype(result = "()")]
 pub struct UpCommand(pub message::Message);
+
+#[derive(Clone, Debug, PartialEq, Message, derive_more::Into, derive_more::AsRef)]
+#[rtype(result = "()")]
+pub struct Log(pub String);

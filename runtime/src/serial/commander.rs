@@ -23,9 +23,18 @@ use crate::{
 #[rtype(result = "Option<message::Message>")]
 pub struct Request(pub message::Message);
 
-#[derive(Default)]
 pub struct Commander {
     requests: fnv::FnvHashMap<UniqueId, oneshot::Sender<message::Message>>,
+    once:     std::sync::Once,
+}
+
+impl Default for Commander {
+    fn default() -> Self {
+        Self {
+            requests: Default::default(),
+            once:     std::sync::Once::new(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, thiserror::Error)]
@@ -112,7 +121,9 @@ impl Actor for Commander {
 
     #[tracing::instrument(skip_all)]
     fn started(&mut self, ctx: &mut Self::Context) {
-        self.subscribe_async::<SystemBroker, serial::AckMessage>(ctx);
+        self.once.call_once(|| {
+            self.subscribe_async::<SystemBroker, serial::AckMessage>(ctx);
+        });
 
         ctx.run_interval(Duration::from_secs(5), |a, _ctx| {
             a.collect_garbage();

@@ -1,6 +1,7 @@
 use std::{
     io,
     sync::Arc,
+    time::Duration,
 };
 
 use actix::{
@@ -34,8 +35,9 @@ pub enum Error {
 }
 
 pub struct Downlink {
-    make_socket: Box<dyn Fn() -> BoxFuture<'static, Option<BoxSender>>>,
-    sender:      Option<BoxSender>,
+    make_socket:    Box<dyn Fn() -> BoxFuture<'static, Option<BoxSender>>>,
+    sender:         Option<BoxSender>,
+    subscribe_once: std::sync::Once,
 }
 
 impl Downlink {
@@ -43,6 +45,7 @@ impl Downlink {
         Self {
             make_socket,
             sender: None,
+            subscribe_once: std::sync::Once::new(),
         }
     }
 }
@@ -65,30 +68,47 @@ impl Actor for Downlink {
                 },
             };
 
-            a.subscribe_async::<SystemBroker, serial::raw::DownPacket>(ctx);
-            a.subscribe_async::<SystemBroker, serial::raw::UpPacket>(ctx);
-            a.subscribe_async::<SystemBroker, serial::DownMessage>(ctx);
-            a.subscribe_async::<SystemBroker, serial::UpMessage>(ctx);
-            a.subscribe_async::<SystemBroker, ground::UpPacket>(ctx);
-            a.subscribe_async::<SystemBroker, ground::UpCommand>(ctx);
+            // pretty hateful
+            a.subscribe_once.call_once(|| {
+                a.subscribe_async::<SystemBroker, serial::raw::DownPacket>(ctx);
+                a.subscribe_async::<SystemBroker, serial::raw::UpPacket>(ctx);
+                a.subscribe_async::<SystemBroker, serial::DownMessage>(ctx);
+                a.subscribe_async::<SystemBroker, serial::UpMessage>(ctx);
+                a.subscribe_async::<SystemBroker, ground::UpPacket>(ctx);
+                a.subscribe_async::<SystemBroker, ground::UpCommand>(ctx);
+                a.subscribe_async::<SystemBroker, ground::Log>(ctx);
+            });
         });
 
         ctx.wait(run);
     }
 }
 
-impl Supervised for Downlink where Self: Actor {}
+impl Supervised for Downlink
+where
+    Self: Actor,
+{
+    #[tracing::instrument(skip_all)]
+    fn restarting(&mut self, ctx: &mut <Self as Actor>::Context) {
+        ctx.wait(fut::wrap_future(async move {
+            tokio::time::sleep(Duration::from_millis(1000)).await;
+        }));
+    }
+}
 
+#[tracing::instrument(skip_all)]
 #[inline]
 fn gen_handle<T>(
-    extract: impl Fn(&T) -> io::Result<message::Downlink> + 'static,
+    extract: impl Fn(&T) -> message::Downlink + 'static,
     sender: Option<&BoxSender>,
     ctx: &mut Context<Downlink>,
     name: &'static str,
     msg: T,
 ) {
     let result: Result<Vec<u8>, Error> = try {
-        let d: message::Downlink = extract(&msg)?;
+        let d: message::Downlink = extract(&msg);
+        tracing::debug!(msg = ?d, "sending downlink");
+
         let encoded = bincode::serialize(&d, ::bincode::Infinite)?;
         let compressed = util::brotli_compress(&encoded)?;
 
@@ -136,36 +156,7 @@ macro_rules! imp {
 
             #[::tracing::instrument(skip_all, fields(msg = %($display)(&msg)))]
             fn handle(&mut self, msg: $msg, ctx: &mut Self::Context) -> Self::Result {
-                let result: Result<Vec<u8>, Error> = try {
-                    let d: ::message::Downlink = ($extract)(&msg);
-                    let encoded = ::bincode::serialize(&d, ::bincode::Infinite)?;
-                    let compressed = ::util::brotli_compress(&encoded)?;
-
-                    compressed
-                };
-
-                let result = match result {
-                    Ok(result) => result,
-                    Err(e) => {
-                        tracing::error!(error = %e, ty = stringify!($msg), "serializing downlink data");
-                        return;
-                    }
-                };
-
-                let sender = self.sender.as_ref().unwrap().clone();
-
-                ctx.wait(fut::wrap_future(async move {
-                    let result = result;
-                    sender.send(&result).await
-                }).map(|result, _a, ctx: &mut Context<Self>| {
-                    if let Err(e) = result {
-                        tracing::error!(error = %e, "sending packet to downlink");
-
-                        if e.kind() == ::std::io::ErrorKind::NotConnected {
-                            ctx.stop();
-                        }
-                    }
-                }));
+                gen_handle($extract, self.sender.as_ref(), ctx, stringify!($msg), msg);
             }
         }
     };
@@ -192,3 +183,4 @@ imp!(serial::DownMessage, |msg: &serial::DownMessage| {
     DownlinkMsg::SerialDownlink(msg.0.clone())
 });
 imp!(ground::UpCommand, |msg: &ground::UpCommand| DownlinkMsg::UplinkInterpreted(msg.0.clone()));
+imp!(ground::Log, |msg: &ground::Log| DownlinkMsg::Log(msg.0.clone()));

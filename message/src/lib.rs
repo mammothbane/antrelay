@@ -69,3 +69,14 @@ pub fn command(env: &Params, dest: Destination, event: Event) -> Message<BytesWr
         payload: BytesWrap::from(&[]),
     })
 }
+
+#[inline]
+pub fn downlink(env: &Params, b: impl AsRef<[u8]>) -> Message<BytesWrap, StandardCRC> {
+    Message::new(HeaderPacket {
+        header:  HeaderPacket {
+            header:  Header::downlink(env, Event::FEPing),
+            payload: SourceInfo::Empty,
+        },
+        payload: BytesWrap::from(b.as_ref()),
+    })
+}

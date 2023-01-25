@@ -57,7 +57,7 @@ fn main() -> std::io::Result<()> {
 
     sys.block_on(async {
         Supervisor::start(|_ctx| runtime::StateMachine::default());
-        Supervisor::start(|_ctx| serial::Serial);
+        Supervisor::start(|_ctx| serial::Serial::default());
 
         Supervisor::start(move |_ctx| {
             serial::raw::RawIO::new(Box::new(move || {
