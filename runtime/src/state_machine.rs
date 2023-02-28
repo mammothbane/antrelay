@@ -98,8 +98,16 @@ impl StateMachine {
         tracing::debug!("handling event");
         let init_state = self.state;
 
+        let mut ignore_repeat = || {
+            self.running_task = old_handle;
+            old_handle = None;
+
+            tracing::info!("noop event: already in target state");
+        };
+
         match (init_state, event) {
-            (State::FlightIdle, Event::FEPowerSupplied) => {
+            (State::PingCentralStation, Event::FEPowerSupplied) => ignore_repeat(),
+            (_, Event::FEPowerSupplied) => {
                 let handle = ctx.run_interval(Duration::from_secs(5), move |_a, ctx| {
                     ctx.spawn(fut::wrap_future(ping_cs()));
                 });
@@ -108,7 +116,8 @@ impl StateMachine {
                 self.state = State::PingCentralStation;
             },
 
-            (State::PingCentralStation, Event::FEGarageOpen) => {
+            (State::PollAnt, Event::FEGarageOpen) => ignore_repeat(),
+            (_, Event::FEGarageOpen) => {
                 let fut = fut::wrap_future(send_retry(|| {
                     Box::pin(async move {
                         message::command(
@@ -131,7 +140,8 @@ impl StateMachine {
                 ctx.wait(fut);
             },
 
-            (State::PollAnt, Event::FERoverStop) => {
+            (State::AntRun, Event::FERoverStop) => ignore_repeat(),
+            (_, Event::FERoverStop) => {
                 let fut = fut::wrap_future(async move {
                     send_retry(|| {
                         Box::pin(async move {
@@ -154,11 +164,12 @@ impl StateMachine {
                 ctx.wait(fut);
             },
 
-            (State::AntRun, Event::FERoverMove) => {
+            (State::PollAnt, Event::FERoverMove) => ignore_repeat(),
+            (_, Event::FERoverMove) => {
                 let fut = fut::wrap_future(async move {
                     send_retry(|| {
                         Box::pin(async move {
-                            message::command(&params().await, Destination::Ant, Event::AntStart)
+                            message::command(&params().await, Destination::Ant, Event::AntStop)
                         })
                     })
                 })
