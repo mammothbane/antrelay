@@ -104,7 +104,7 @@ impl Handler<Query> for OverrideRegistry {
     type Result = MessageResult<Query>;
 
     fn handle(&mut self, Query(type_id): Query, _ctx: &mut Self::Context) -> Self::Result {
-        let result = self.map.get(&type_id).map(|x| x.clone());
+        let result = self.map.get(&type_id).cloned();
 
         MessageResult(result)
     }

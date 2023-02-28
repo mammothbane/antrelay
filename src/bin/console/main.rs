@@ -110,7 +110,7 @@ where
         let command = match Command::from_iter_safe(words.into_iter().map(OsString::from)) {
             Ok(c) => c,
             Err(e) => {
-                w.write_all(&format!("{}", e).as_bytes()).await?;
+                w.write_all(format!("{e}").as_bytes()).await?;
                 continue;
             },
         };

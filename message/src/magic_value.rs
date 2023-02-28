@@ -87,8 +87,7 @@ impl<'de, const C: u8> Deserialize<'de> for MagicValue<C> {
 
         if val != C {
             return Err(Error::custom(format!(
-                "magic value mismatch (expected: {}, got: {})",
-                C, val
+                "magic value mismatch (expected: {C}, got: {val})"
             )));
         }
 

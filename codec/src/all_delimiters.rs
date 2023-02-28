@@ -119,7 +119,7 @@ impl Decoder for AllDelimiterCodec {
     type Item = Bytes;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        eprintln!("hello? {:?}", src);
+        eprintln!("hello? {src:?}");
 
         // loop serves 2 functions:
         //      - aho_corasick finds the leftmost match, even a partial one. with delim [0x0, 0x0],
@@ -174,7 +174,7 @@ impl Decoder for AllDelimiterCodec {
             return self.decode(buf);
         }
 
-        if buf.len() == 0 {
+        if buf.is_empty() {
             return Ok(if self.inclusive_seen_header && !self.inclusive_terminated {
                 self.inclusive_terminated = true;
                 Some(self.make_decoded(BytesMut::new()))
@@ -231,7 +231,7 @@ mod test {
 
     #[tokio::test]
     async fn test_exclusive_decode() -> eyre::Result<()> {
-        assert_decode(AllDelimiterCodec::new(&[0], false), vec![0, 1, 2, 3, 0, 4, 5, 6], vec![
+        assert_decode(AllDelimiterCodec::new([0], false), vec![0, 1, 2, 3, 0, 4, 5, 6], vec![
             vec![],
             vec![1, 2, 3],
         ])
@@ -240,7 +240,7 @@ mod test {
 
     #[tokio::test]
     async fn test_inclusive_decode() -> eyre::Result<()> {
-        assert_decode(AllDelimiterCodec::new(&[0], true), vec![0, 1, 2, 3, 0, 4, 5, 6], vec![
+        assert_decode(AllDelimiterCodec::new([0], true), vec![0, 1, 2, 3, 0, 4, 5, 6], vec![
             vec![0, 1, 2, 3],
             vec![0, 4, 5, 6],
         ])
@@ -250,7 +250,7 @@ mod test {
     #[tokio::test]
     async fn test_exclusive_decode_multi() -> eyre::Result<()> {
         assert_decode(
-            AllDelimiterCodec::new(&[0, 1], false),
+            AllDelimiterCodec::new([0, 1], false),
             vec![0, 1, 1, 2, 3, 0, 1, 4, 5, 6],
             vec![vec![], vec![1, 2, 3]],
         )
@@ -259,7 +259,7 @@ mod test {
 
     #[tokio::test]
     async fn test_inclusive_decode_multi() -> eyre::Result<()> {
-        assert_decode(AllDelimiterCodec::new(&[0, 1], true), vec![0, 1, 2, 3, 0, 1, 4, 5, 6], vec![
+        assert_decode(AllDelimiterCodec::new([0, 1], true), vec![0, 1, 2, 3, 0, 1, 4, 5, 6], vec![
             vec![0, 1, 2, 3],
             vec![0, 1, 4, 5, 6],
         ])
@@ -268,32 +268,32 @@ mod test {
 
     #[tokio::test]
     async fn test_exclusive_decode_multi_proptest_1() -> eyre::Result<()> {
-        assert_decode(AllDelimiterCodec::new(&[0, 1], false), vec![0, 0, 1], vec![vec![0]]).await
+        assert_decode(AllDelimiterCodec::new([0, 1], false), vec![0, 0, 1], vec![vec![0]]).await
     }
 
     #[tokio::test]
     async fn test_inclusive_decode_multi_proptest_1() -> eyre::Result<()> {
-        assert_decode(AllDelimiterCodec::new(&[0, 1], true), vec![0, 1], vec![vec![0, 1]]).await
+        assert_decode(AllDelimiterCodec::new([0, 1], true), vec![0, 1], vec![vec![0, 1]]).await
     }
 
     #[tokio::test]
     async fn test_decode_proptest_repeated() -> eyre::Result<()> {
-        assert_decode(AllDelimiterCodec::new(&[12, 12], false), vec![12], vec![] as Vec<Vec<u8>>)
+        assert_decode(AllDelimiterCodec::new([12, 12], false), vec![12], vec![] as Vec<Vec<u8>>)
             .await
     }
 
     #[tokio::test]
     async fn test_inclusive_decode_proptest_empty() -> eyre::Result<()> {
-        assert_decode(AllDelimiterCodec::new(&[0, 1], true), vec![0, 1], vec![vec![0, 1]]).await
+        assert_decode(AllDelimiterCodec::new([0, 1], true), vec![0, 1], vec![vec![0, 1]]).await
     }
 
     proptest! {
         #[test]
         fn test_exclusive_prop(delim in any::<Vec<u8>>(), expect in any::<Vec<Vec<u8>>>()) {
-            prop_assume!(delim.len() != 0);
+            prop_assume!(!delim.is_empty());
             prop_assume!(expect.iter().all(|x| x.windows(delim.len()).all(|w| w != delim)));
 
-            let test = if expect.len() == 0 {
+            let test = if expect.is_empty() {
                 vec![]
             } else {
                 expect.clone().into_iter().interleave_shortest(std::iter::repeat(delim.clone())).flatten().collect::<Vec<u8>>()
@@ -311,10 +311,10 @@ mod test {
 
         #[test]
         fn test_inclusive_prop(delim in any::<Vec<u8>>(), expect in any::<Vec<Vec<u8>>>()) {
-            prop_assume!(delim.len() != 0);
+            prop_assume!(!delim.is_empty());
             prop_assume!(expect.iter().all(|x| x.windows(delim.len()).all(|w| !delim.starts_with(w))));
 
-            let chunks = std::iter::repeat(delim.clone()).interleave_shortest(expect.clone().into_iter()).chunks(2);
+            let chunks = std::iter::repeat(delim.clone()).interleave_shortest(expect.into_iter()).chunks(2);
 
             let expected = chunks.into_iter().map(|pair| pair.flatten().collect::<Vec<_>>()).collect::<Vec<_>>();
             let test = expected.clone().into_iter().flatten().collect::<Vec<u8>>();

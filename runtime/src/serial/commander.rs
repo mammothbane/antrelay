@@ -87,7 +87,7 @@ pub async fn send(
         None => req.await,
     };
 
-    let resp: message::Message = resp?.ok_or_else(|| Error::RequestDropped)?;
+    let resp: message::Message = resp?.ok_or(Error::RequestDropped)?;
 
     if resp.as_ref().header.header.ty.invalid {
         return Err(Error::InvalidAckChecksum);

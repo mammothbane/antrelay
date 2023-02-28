@@ -169,7 +169,7 @@ mod test {
         // partial message doesn't complete
         w.write_all(&[1, 1]).await?;
         let try_read = tokio::time::timeout(Duration::from_millis(250), reader.next()).await;
-        assert!(try_read.is_err(), "got: {:?}", try_read);
+        assert!(try_read.is_err(), "got: {try_read:?}");
 
         // but once terminated, it does
         w.write_all(&[0]).await?;
@@ -190,12 +190,12 @@ mod test {
         // partial after already decoding doesn't complete
         w.write_all(&[1, 1]).await?;
         let try_read = tokio::time::timeout(Duration::from_millis(250), reader.next()).await;
-        assert!(try_read.is_err(), "got: {:?}", try_read);
+        assert!(try_read.is_err(), "got: {try_read:?}");
 
         // additional partials don't complete
         w.write_all(&[2, 1, 1]).await?;
         let try_read = tokio::time::timeout(Duration::from_millis(250), reader.next()).await;
-        assert!(try_read.is_err(), "got: {:?}", try_read);
+        assert!(try_read.is_err(), "got: {try_read:?}");
 
         // but eventually resolve
         w.write_all(&[0]).await?;
@@ -205,7 +205,7 @@ mod test {
         // EOF reads none
         drop(w);
         let read = reader.next().await;
-        assert!(read.is_none(), "got: {:?}", read);
+        assert!(read.is_none(), "got: {read:?}");
 
         Ok(())
     }
@@ -213,7 +213,7 @@ mod test {
     proptest! {
         #[test]
         fn test_enc_dec(to_encode in any::<Vec<Vec<u8>>>()) {
-            let to_encode = to_encode.into_iter().map(|x| x.into_iter().map(|x| x ^ 0).collect::<Vec<_>>()).collect::<Vec<_>>();
+            let to_encode = to_encode.into_iter().map(|x| x.into_iter().collect::<Vec<_>>()).collect::<Vec<_>>();
 
             let (r, w) = sluice::pipe::pipe();
 

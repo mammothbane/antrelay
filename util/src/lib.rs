@@ -18,7 +18,7 @@ pub fn brotli_compress(message: &impl AsRef<[u8]>) -> std::io::Result<Vec<u8>> {
             };
         }
 
-        brotli::BrotliCompress(&mut message.as_ref(), &mut out, &*PARAMS)?;
+        brotli::BrotliCompress(&mut message.as_ref(), &mut out, &PARAMS)?;
 
         out
     };

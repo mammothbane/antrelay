@@ -99,8 +99,16 @@ impl Header {
         let ty_str = format!(
             "{:?}{}{}",
             self.ty.event,
-            (self.ty.disposition == Disposition::Ack).then(|| "[Ack]").unwrap_or(""),
-            self.ty.invalid.then(|| "[Invalid]").unwrap_or(""),
+            if self.ty.disposition == Disposition::Ack {
+                "[Ack]"
+            } else {
+                ""
+            },
+            if self.ty.invalid {
+                "[Invalid]"
+            } else {
+                ""
+            },
         );
 
         let ts = self.timestamp.conv::<chrono::DateTime<chrono::Utc>>();

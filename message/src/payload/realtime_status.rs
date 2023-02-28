@@ -23,7 +23,7 @@ pub enum Flags {
 
 impl RealtimeStatus {
     pub const MEMORY_RANGE_MB: std::ops::Range<f64> = 0.0..64.0;
-    const MEMORY_RANGE_SIZE: f64 = Self::MEMORY_RANGE_MB.end - Self::MEMORY_RANGE_MB.end;
+    const MEMORY_RANGE_SIZE: f64 = Self::MEMORY_RANGE_MB.end - Self::MEMORY_RANGE_MB.start;
 
     #[inline]
     pub fn memory_mb(&self) -> f64 {

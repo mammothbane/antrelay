@@ -60,7 +60,7 @@ impl DatagramSender for UnixDatagram {
     #[tracing::instrument(skip(self), err(Display))]
     #[inline]
     async fn send(&self, packet: &[u8]) -> io::Result<usize> {
-        self.send(&packet).await
+        self.send(packet).await
     }
 }
 

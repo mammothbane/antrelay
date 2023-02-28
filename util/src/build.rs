@@ -12,5 +12,5 @@ env_or_none!(COMMIT_HASH, "VERGEN_GIT_SHA");
 env_or_none!(BUILD_TIMESTAMP, "VERGEN_BUILD_TIMESTAMP");
 env_or_none!(RUSTC_COMMIT_HASH, "VERGEN_RUSTC_COMMIT_HASH");
 
-pub const COMMIT_HASH_SHORT: &'static str = &COMMIT_HASH[..6];
-pub const RUSTC_COMMIT_HASH_SHORT: &'static str = &RUSTC_COMMIT_HASH[..6];
+pub const COMMIT_HASH_SHORT: &str = &COMMIT_HASH[..6];
+pub const RUSTC_COMMIT_HASH_SHORT: &str = &RUSTC_COMMIT_HASH[..6];

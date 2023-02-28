@@ -67,7 +67,7 @@ impl DatagramSender for UdpSocket {
     #[tracing::instrument(err, fields(packet.len = packet.len(), self.addr = ?self.local_addr().ok()), skip(packet, self))]
     #[inline]
     async fn send(&self, packet: &[u8]) -> io::Result<usize> {
-        self.send(&packet).await
+        self.send(packet).await
     }
 }
 

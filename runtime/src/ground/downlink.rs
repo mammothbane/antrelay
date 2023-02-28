@@ -154,6 +154,7 @@ macro_rules! imp {
         impl Handler<$msg> for Downlink {
             type Result = ();
 
+            #[allow(clippy::redundant_closure_call)]
             #[::tracing::instrument(skip_all, fields(msg = %($display)(&msg)))]
             fn handle(&mut self, msg: $msg, ctx: &mut Self::Context) -> Self::Result {
                 gen_handle($extract, self.sender.as_ref(), ctx, stringify!($msg), msg);

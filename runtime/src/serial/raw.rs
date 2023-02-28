@@ -98,7 +98,6 @@ impl Actor for RawIO {
                         Err(Error::Io(e)) => {
                             tracing::error!(error = %e, "io error -- reconnecting to serial port");
                             ctx.stop();
-                            return;
                         }
                         Err(e) => tracing::error!(error = %e),
                         _ => {},

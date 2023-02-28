@@ -32,7 +32,7 @@ pub async fn connect_once(addrs: &[Address]) {
                 let mut ok = false;
 
                 for addr in addrs {
-                    if let Ok(_) = <Socket as DatagramOps>::connect(addr).await {
+                    if <Socket as DatagramOps>::connect(addr).await.is_ok() {
                         ok = true;
                         break;
                     }

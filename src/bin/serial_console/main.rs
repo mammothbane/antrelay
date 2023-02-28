@@ -97,7 +97,7 @@ async fn main() -> eyre::Result<()> {
         let command = match Command::from_iter_safe(words.into_iter().map(OsString::from)) {
             Ok(c) => c,
             Err(e) => {
-                w.write_all(&format!("command error: {}\n", e).as_bytes()).await?;
+                w.write_all(format!("command error: {e}\n").as_bytes()).await?;
                 continue;
             },
         };
@@ -113,7 +113,7 @@ async fn main() -> eyre::Result<()> {
                 let val = match hex::decode(value) {
                     Ok(val) => val,
                     Err(e) => {
-                        w.write_all(format!("error: invalid argument: {}\n", e).as_bytes()).await?;
+                        w.write_all(format!("error: invalid argument: {e}\n").as_bytes()).await?;
                         continue;
                     },
                 };
@@ -127,7 +127,7 @@ async fn main() -> eyre::Result<()> {
 
                 match b {
                     Err(e) => {
-                        w.write_all(format!("error parsing cobs data: {}\n", e).as_bytes()).await?;
+                        w.write_all(format!("error parsing cobs data: {e}\n").as_bytes()).await?;
                         continue;
                     },
                     Ok(b) => framed_write.send(b.to_vec()).await?,
@@ -140,7 +140,7 @@ async fn main() -> eyre::Result<()> {
                 let val = match hex::decode(value) {
                     Ok(val) => val,
                     Err(e) => {
-                        w.write_all(format!("error: invalid argument: {}\n", e).as_bytes()).await?;
+                        w.write_all(format!("error: invalid argument: {e}\n").as_bytes()).await?;
                         continue;
                     },
                 };
@@ -166,7 +166,7 @@ async fn read_downlink(
         };
         output.write_all(format!("UP PACKET\n\t{}\n", hex::encode(&*packet)).as_bytes()).await?;
 
-        let message = <Message as PackedStructSlice>::unpack_from_slice(&*packet)?;
-        output.write_all(format!("UP MESSAGE\n\t{}\n", message).as_bytes()).await?;
+        let message = <Message as PackedStructSlice>::unpack_from_slice(&packet)?;
+        output.write_all(format!("UP MESSAGE\n\t{message}\n").as_bytes()).await?;
     }
 }

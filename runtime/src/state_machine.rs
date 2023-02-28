@@ -172,6 +172,7 @@ impl StateMachine {
                             message::command(&params().await, Destination::Ant, Event::AntStop)
                         })
                     })
+                    .await
                 })
                 .map(|_result, act: &mut Self, ctx| {
                     act.running_task = Some(ctx.spawn(fut::wrap_future(ping_ant())));

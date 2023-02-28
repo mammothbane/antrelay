@@ -25,7 +25,7 @@ fn mk_fe_command(event: Event) -> eyre::Result<String> {
 
 #[inline]
 fn print_fe_command(event: Event, msg: &str) -> eyre::Result<()> {
-    eprintln!("{}", msg);
+    eprintln!("{msg}");
     println!("{}", mk_fe_command(event)?);
     eprintln!();
 

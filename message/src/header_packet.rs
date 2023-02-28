@@ -94,8 +94,8 @@ where
 
     fn packed_bytes_size(opt_self: Option<&Self>) -> PackingResult<usize> {
         let payload_size = Payload::packed_bytes_size(opt_self.map(
-            |&HeaderPacket {
-                 ref payload,
+            |HeaderPacket {
+                 payload,
                  ..
              }| payload,
         ))?;
