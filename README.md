@@ -62,6 +62,31 @@ this is with
 $ socat -d -d pty,raw,echo=0 pty,raw,echo=0
 ```
 
+## rover -> frontend control messages
+To produce a listing of hex-encoded control messages the frontend software expects to receive from
+the rover at the relevant points in the mission, you can run:
+
+```console
+$ cargo run --bin rovermsgs
+hex-encoding of binary control messages (rover -> antrelay frontend)
+5v supplied to ant
+eb900000000000240000000000000000009a
+
+ant garage open
+eb9000000000002100000000000000000055
+
+rover is not turning
+eb90000000000022000000000000000000ed
+
+rover is turning
+eb9000000000002300000000000000000085
+```
+
+Output as of 2/2023 is included above and is expected to be stable.
+
+For clarity, we expect to receive these messages as binary packets over the uplink socket (not
+textual hex).
+
 ## docker (@LO)
 
 A `docker run` oneliner:
@@ -81,6 +106,5 @@ $ docker run \
 (Plus whatever is required to give us `dialout`/access to the serial port on the host system)
 
 # todo
-- restart socket and serial connections on io error
 - logging for the frontend software
 - integration tests
