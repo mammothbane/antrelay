@@ -85,7 +85,68 @@ eb9000000000002300000000000000000085
 Output as of 2/2023 is included above and is expected to be stable.
 
 For clarity, we expect to receive these messages as binary packets over the uplink socket (not
-textual hex).
+textual hex). You can convert the messages to binary files as follows:
+
+```shell
+$ echo -n "$hex" | xxd -r -p > test.bin
+```
+
+## downlink
+Over the downlink, the frontend echoes every packet it:
+
+- receives over the uplink
+- sends to the serial port
+- receives from the serial port
+
+Raw literal packets are always sent. If the frontend succeeds in (de)serializing the packet, it also
+reencodes it and sends that as a "non-raw" version. E.g., there's both an "uplink raw" message type
+(UDP packets from uplink) and an "uplink" (reencoded messages) type, to give us visibility in the
+case of a serialization failure.
+
+Our telemetry from the central station and ant is in the form of "serial downlink" packets that come
+back over this link.
+
+The downlink itself is encoded using the rust [`bincode`](https://docs.rs/bincode/latest/bincode/)
+library and then compressed using brotli -- it is not easily introspectable.
+
+### LO integration testing
+If testing the messages defined above over the uplink, we provide the `decode_downlink` tool to
+decode messages downlinked from the ant's docker container:
+
+```shell
+$ cargo run --bin docker_downlink < packet.bin
+```
+
+It expects binary input by default, but can be passed `--hex` or `--base64` as appropriate, e.g.:
+
+```shell
+$ echo -n $pkt_hex | cargo run --bin docker_downlink -- --hex
+```
+
+The most interesting messages will be marked `SERIAL DOWNLINK`, as this is what is coming back from
+the central station:
+
+- After sending 5v supplied, we expect periodic `CSPing[Ack]` messages with no payload.
+
+- After sending ant garage open:
+  - `CSGarageOpen[Ack]` with no payload. If the ant is not present, this should be it.
+  - With the ant:
+    - `CSBLEConnect[Ack]` with no payload. (It may send a `CSBLEDisconnect[Ack]` first if it was
+       already connected to the ant.)
+    - `CSRelay` packets containing ant data
+
+- After sending rover not turning, assuming ant is present:
+  - `AntStart[Ack]`
+  - Ant should start to move
+  - After it completes its move, a dump of `CSRelay` packets containing ant data
+
+- After sending rover turning, assuming ant is present:
+  - `AntStop[Ack]`
+  - Ant should stop moving (I don't believe the current firmware does this)
+
+Note that resending a packet from the rover will not cause repeat behavior unless we've been in a
+different state since the first message. E.g. "not turning -> not turning" means the frontend
+software will only trigger sending a message to the ant once.
 
 ## docker (@LO)
 
