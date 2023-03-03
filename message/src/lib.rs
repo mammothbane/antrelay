@@ -17,7 +17,7 @@ mod header_packet;
 mod magic_value;
 mod mission_epoch;
 pub mod payload;
-mod source_info;
+pub mod source_info;
 
 pub use bytes_wrap::BytesWrap;
 pub use checksum::Checksum;
