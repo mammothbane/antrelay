@@ -24,6 +24,7 @@ use crate::{
     ground::Log,
     params,
     serial,
+    serial::send,
 };
 
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq, PartialOrd, Ord, derive_more::Display)]
@@ -108,8 +109,12 @@ impl StateMachine {
         match (init_state, event) {
             (State::PingCentralStation, Event::FEPowerSupplied) => ignore_repeat(),
             (_, Event::FEPowerSupplied) => {
-                let handle = ctx.run_interval(Duration::from_secs(5), move |_a, ctx| {
-                    ctx.spawn(fut::wrap_future(ping_cs()));
+                let handle = ctx.run_later(Duration::from_secs(5), move |a, ctx| {
+                    let handle = ctx.run_interval(Duration::from_secs(5), move |_a, ctx| {
+                        ctx.spawn(fut::wrap_future(ping_cs()));
+                    });
+
+                    a.running_task = Some(handle);
                 });
 
                 self.running_task = Some(handle);
@@ -143,12 +148,8 @@ impl StateMachine {
             (State::AntRun, Event::FERoverStop) => ignore_repeat(),
             (_, Event::FERoverStop) => {
                 let fut = fut::wrap_future(async move {
-                    send_retry(|| {
-                        Box::pin(async move {
-                            message::command(&params().await, Destination::Ant, Event::AntStart)
-                        })
-                    })
-                    .await?;
+                    let msg = message::command(&params().await, Destination::Ant, Event::AntStart);
+                    send(msg, Some(Duration::from_secs(1))).await?;
 
                     Ok(()) as Result<(), serial::Error>
                 })
