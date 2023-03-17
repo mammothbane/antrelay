@@ -56,6 +56,7 @@ fn main() -> std::io::Result<()> {
     let sys = System::new();
 
     sys.block_on(async {
+        Supervisor::start(|_ctx| serial::ant_decode::AntDecode::default());
         Supervisor::start(|_ctx| runtime::StateMachine::default());
         Supervisor::start(|_ctx| serial::Serial::default());
 

@@ -1,3 +1,5 @@
+use std::sync::Once;
+
 use actix::{
     prelude::*,
     Actor,
@@ -12,13 +14,13 @@ use actix_broker::{
 };
 use bytes::BytesMut;
 use packed_struct::PackedStructSlice;
-use std::sync::Once;
 
 use message::{
     Message,
     SourceInfo,
 };
 
+pub mod ant_decode;
 mod commander;
 pub mod raw;
 
@@ -35,6 +37,33 @@ pub struct DownMessage(pub Message);
 #[derive(Clone, Debug, PartialEq, Message, derive_more::Into, derive_more::AsRef)]
 #[rtype(result = "()")]
 pub struct AckMessage(pub Message);
+
+#[derive(Clone, Debug, PartialEq, Message, derive_more::Into, derive_more::AsRef)]
+#[rtype(result = "()")]
+pub struct AntMessage(pub Message);
+
+#[tracing::instrument(skip_all, fields(%msg))]
+fn try_issue_ack<A>(issue: &A, msg: &Message, ctx: &mut A::Context)
+where
+    A: Actor + BrokerIssue,
+    A::Context: AsyncContext<A>,
+{
+    let inner = msg.as_ref();
+
+    let (unique_id, crc) = match inner.header.payload {
+        SourceInfo::Info(info) => {
+            let header = info.header;
+            (header.unique_id(), info.checksum)
+        },
+        SourceInfo::Empty => {
+            tracing::trace!("message has no source");
+            return;
+        },
+    };
+
+    tracing::info!(unique_id = %inner.header.header.unique_id(), response_to = ?unique_id, orig_crc = ?crc, "decoded acked command");
+    issue.issue_sync::<SystemBroker, _>(AckMessage(msg.clone()), ctx);
+}
 
 pub struct Serial {
     subscribe_once: Once,
@@ -66,6 +95,8 @@ impl Handler<UpMessage> for Serial {
 
     #[tracing::instrument(skip_all, fields(msg = %msg.0))]
     fn handle(&mut self, msg: UpMessage, ctx: &mut Self::Context) -> Self::Result {
+        use actix_broker::BrokerIssue;
+
         tracing::info!("sending serial command");
 
         let result = match msg.0.pack_to_vec() {
@@ -95,23 +126,11 @@ impl Handler<raw::DownPacket> for Serial {
         self.issue_sync::<SystemBroker, _>(DownMessage(unpacked.clone()), ctx);
 
         let inner = unpacked.as_ref();
-        let header = &inner.header;
 
-        let _span = tracing::info_span!("serial message decoded", event = ?header.header.ty.event)
-            .entered();
+        let _span =
+            tracing::info_span!("serial message decoded", event = ?inner.header.header.ty.event)
+                .entered();
 
-        let (unique_id, crc) = match inner.header.payload {
-            SourceInfo::Info(info) => {
-                let header = info.header;
-                (header.unique_id(), info.checksum)
-            },
-            SourceInfo::Empty => {
-                tracing::trace!("message has no source");
-                return;
-            },
-        };
-
-        tracing::info!(unique_id = %inner.header.header.unique_id(), response_to = ?unique_id, orig_crc = ?crc, "decoded acked serial command");
-        self.issue_sync::<SystemBroker, _>(AckMessage(unpacked), ctx);
+        try_issue_ack(self, &unpacked, ctx);
     }
 }
