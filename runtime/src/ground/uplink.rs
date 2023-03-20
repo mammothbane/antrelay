@@ -1,7 +1,11 @@
-use std::io;
+use std::{
+    io,
+    time::Duration,
+};
 
 use actix::prelude::*;
 use actix_broker::{
+    Broker,
     BrokerIssue,
     SystemBroker,
 };
@@ -81,7 +85,7 @@ where
         };
 
         tracing::info!(hex = %hex::encode(&*pkt.0), "raw uplink command packet");
-        self.issue_sync::<SystemBroker, _>(pkt.clone(), ctx);
+        self.issue_system_async(pkt.clone());
 
         let msg = match <message::Message<BytesWrap> as PackedStructSlice>::unpack_from_slice(
             pkt.0.as_ref(),
@@ -94,6 +98,7 @@ where
         };
 
         tracing::info!(%msg, "decoded uplink packet");
-        self.issue_system_sync(ground::UpCommand(msg), ctx);
+        self.issue_system_async(ground::UpCommand(msg));
+        tracing::debug!("sent uplink packet");
     }
 }

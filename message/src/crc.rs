@@ -10,6 +10,10 @@ use std::{
         Hasher,
     },
     marker::PhantomData,
+    ops::{
+        Deref,
+        DerefMut,
+    },
 };
 
 use once_cell::sync::OnceCell;
@@ -98,6 +102,22 @@ where
 impl<T, CRC> AsRef<T> for WithCRC<T, CRC> {
     fn as_ref(&self) -> &T {
         &self.val
+    }
+}
+
+impl<T, CRC> Deref for WithCRC<T, CRC> {
+    type Target = T;
+
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        &self.val
+    }
+}
+
+impl<T, CRC> DerefMut for WithCRC<T, CRC> {
+    #[inline]
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.val
     }
 }
 

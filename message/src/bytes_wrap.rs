@@ -15,7 +15,16 @@ use serde::{
 };
 
 #[derive(
-    Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, derive_more::Into, derive_more::AsRef,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    Hash,
+    PartialOrd,
+    Ord,
+    derive_more::Into,
+    derive_more::AsRef,
+    Default,
 )]
 pub struct BytesWrap(Bytes);
 

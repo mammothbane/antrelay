@@ -1,4 +1,5 @@
 #![feature(try_blocks)]
+#![feature(duration_constants)]
 
 pub mod ground;
 pub mod serial;

@@ -5,7 +5,7 @@ use std::{
 
 use actix::prelude::*;
 use actix_broker::{
-    BrokerIssue,
+    Broker,
     BrokerSubscribe,
     SystemBroker,
 };
@@ -52,43 +52,36 @@ impl Default for StateMachine {
     }
 }
 
+#[tracing::instrument(skip(msg))]
 async fn send_retry(
     msg: impl FnMut() -> BoxFuture<'static, message::Message<BytesWrap>>,
+    timeout: Duration,
+    base_retry: Duration,
+    max_delay: Duration,
+    max_count: usize,
 ) -> Result<message::Message, serial::Error> {
     // proportion of signal to be jittered, i.e. multiply the signal by a random sample in the range
     // [1 - JITTER_FACTOR, 1 + JITTER_FACTOR]
     const JITTER_FACTOR: f64 = 0.5;
 
-    let strategy = tokio_retry::strategy::ExponentialBackoff::from_millis(300)
-        .max_delay(Duration::from_secs(3))
-        .map(|dur| {
-            // make distribution even about 0, scale by factor, offset about 1
-            let jitter = (rand::random::<f64>() - 0.5) * JITTER_FACTOR * 2. + 1.;
+    let strategy =
+        tokio_retry::strategy::ExponentialBackoff::from_millis(base_retry.as_millis() as u64)
+            .max_delay(max_delay)
+            .map(|dur| {
+                // make distribution even about 0, scale by factor, offset about 1
+                let jitter = (rand::random::<f64>() - 0.5) * JITTER_FACTOR * 2. + 1.;
 
-            dur.mul_f64(jitter)
-        })
-        .take(5);
+                dur.mul_f64(jitter)
+            })
+            .take(max_count);
 
-    serial::send_retry(msg, Duration::from_millis(750), strategy).await
+    serial::send_retry(msg, timeout, strategy).await
 }
 
 async fn ping_cs() {
     let msg = message::command(&params().await, Destination::CentralStation, Event::CSPing);
 
     serial::do_send(msg).await;
-}
-
-async fn ping_ant() {
-    loop {
-        let msg = message::command(&params().await, Destination::Ant, Event::AntPing);
-        let result = serial::send(msg, Some(Duration::from_millis(750))).await;
-
-        if let Err(e) = result {
-            tracing::error!(error = %e, "pinging ant");
-        }
-
-        tokio::time::sleep(Duration::from_secs(1)).await;
-    }
 }
 
 impl StateMachine {
@@ -99,10 +92,13 @@ impl StateMachine {
         tracing::debug!("handling event");
         let init_state = self.state;
 
-        let mut ignore_repeat = || {
+        let mut reset_handle = || {
             self.running_task = old_handle;
             old_handle = None;
+        };
 
+        let mut ignore_repeat = || {
+            reset_handle();
             tracing::info!("noop event: already in target state");
         };
 
@@ -131,7 +127,7 @@ impl StateMachine {
                             Event::CSGarageOpen,
                         )
                     })
-                }))
+                }, Duration::from_secs(3), Duration::SECOND, Duration::SECOND * 5, 3))
                 .map(|result, act: &mut Self, _ctx| {
                     if let Err(e) = result {
                         tracing::error!(error = %e, "failed to send garage open to central station");
@@ -142,45 +138,43 @@ impl StateMachine {
                     act.state = State::PollAnt;
                 });
 
-                ctx.wait(fut);
+                self.running_task = Some(ctx.spawn(fut));
             },
 
             (State::AntRun, Event::FERoverStop) => ignore_repeat(),
             (_, Event::FERoverStop) => {
                 let fut = fut::wrap_future(async move {
                     let msg = message::command(&params().await, Destination::Ant, Event::AntStart);
-                    send(msg, Some(Duration::from_secs(1))).await?;
 
-                    Ok(()) as Result<(), serial::Error>
-                })
-                .map(|result, act: &mut Self, _| {
-                    if let Err(e) = result {
-                        tracing::error!(error = %e, "failed to transition ant to running");
-                        return;
+                    if let Err(e) = send(msg, Some(Duration::SECOND * 20)).await {
+                        tracing::error!(error = %e, "sending rover stop");
                     }
-
-                    act.state = State::AntRun;
                 });
 
-                ctx.wait(fut);
+                self.running_task = Some(ctx.spawn(fut));
+                self.state = State::AntRun;
             },
 
             (State::PollAnt, Event::FERoverMove) => ignore_repeat(),
             (_, Event::FERoverMove) => {
                 let fut = fut::wrap_future(async move {
-                    send_retry(|| {
-                        Box::pin(async move {
-                            message::command(&params().await, Destination::Ant, Event::AntStop)
-                        })
-                    })
+                    send_retry(
+                        || {
+                            Box::pin(async move {
+                                message::command(&params().await, Destination::Ant, Event::AntStop)
+                            })
+                        },
+                        Duration::from_secs(20),
+                        Duration::from_secs(5),
+                        Duration::from_secs(10),
+                        3,
+                    )
                     .await
-                })
-                .map(|_result, act: &mut Self, ctx| {
-                    act.running_task = Some(ctx.spawn(fut::wrap_future(ping_ant())));
-                    act.state = State::PollAnt;
+                    .expect("help");
                 });
 
-                ctx.wait(fut);
+                self.running_task = Some(ctx.spawn(fut));
+                self.state = State::PollAnt;
             },
 
             #[cfg(debug_assertions)]
@@ -195,9 +189,9 @@ impl StateMachine {
                     serial::do_send(msg).await;
                 });
 
+                reset_handle();
                 ctx.wait(fut);
             },
-
             (_, Event::AntPing) => {
                 let fut = fut::wrap_future(async move {
                     let msg = message::command(&params().await, Destination::Ant, Event::AntPing);
@@ -205,17 +199,17 @@ impl StateMachine {
                     serial::do_send(msg).await;
                 });
 
+                reset_handle();
                 ctx.wait(fut);
             },
-
             (_, Event::FEPing) => {
-                self.issue_sync::<SystemBroker, _>(Log("pong".into()), ctx);
+                Broker::<SystemBroker>::issue_async(Log("pong".into()));
+                reset_handle();
             },
 
             (ref state, event) => {
                 tracing::debug!(?state, ?event, "unmatched state machine transition");
-                self.running_task = old_handle;
-                old_handle = None;
+                reset_handle();
             },
         };
 
@@ -241,6 +235,10 @@ impl Actor for StateMachine {
         });
 
         tracing::info!("state machine controller started");
+    }
+
+    fn stopped(&mut self, _ctx: &mut Self::Context) {
+        tracing::error!("state machine controller stopped");
     }
 }
 

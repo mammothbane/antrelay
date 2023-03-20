@@ -9,19 +9,31 @@ use tracing_subscriber::{
 use util::bootstrap;
 
 pub fn init(pretty: bool) {
-    let stderr_layer =
-        tracing_subscriber::fmt::layer().with_writer(std::io::stderr).with_target(false);
-
     let level_filter = mk_level_filter();
     bootstrap!("enabling tracing with filter directive: {}", level_filter);
 
-    let s = tracing_subscriber::registry().with(level_filter);
+    let stderr_layer =
+        tracing_subscriber::fmt::layer().with_writer(std::io::stderr).with_target(false);
+
+    let s = cfg_if::cfg_if! {
+        if #[cfg(all(tokio_unstable, debug_assertions))] {
+            tracing_subscriber::registry().with(console_subscriber::spawn())
+        } else {
+            tracing_subscriber::registry()
+        }
+    };
 
     if pretty {
-        s.with(stderr_layer.pretty()).init();
+        s.with(stderr_layer.pretty().with_filter(level_filter)).init();
     } else {
-        s.with(stderr_layer.with_line_number(false).with_timer(()).with_span_events(FmtSpan::NONE))
-            .init();
+        s.with(
+            stderr_layer
+                .with_line_number(false)
+                .with_timer(())
+                .with_span_events(FmtSpan::NONE)
+                .with_filter(level_filter),
+        )
+        .init();
     }
 }
 

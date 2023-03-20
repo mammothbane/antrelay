@@ -76,6 +76,7 @@ pub async fn send_retry(
 }
 
 #[inline]
+#[tracing::instrument]
 pub async fn send(
     message: message::Message,
     timeout: Option<Duration>,
@@ -87,6 +88,7 @@ pub async fn send(
         None => req.await,
     };
 
+    tracing::debug!("awaiting reply");
     let resp: message::Message = resp?.ok_or(Error::RequestDropped)?;
 
     if resp.as_ref().header.header.ty.invalid {
@@ -137,10 +139,10 @@ impl SystemService for Commander {}
 impl Handler<Request> for Commander {
     type Result = ResponseFuture<Option<message::Message>>;
 
-    fn handle(&mut self, msg: Request, ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: Request, _ctx: &mut Self::Context) -> Self::Result {
         let (tx, rx) = oneshot::channel();
         self.requests.insert(msg.0.as_ref().header.header.unique_id(), tx);
-        self.issue_sync::<SystemBroker, _>(serial::UpMessage(msg.0), ctx);
+        self.issue_async::<SystemBroker, _>(serial::UpMessage(msg.0));
 
         Box::pin(async move { rx.await.ok() })
     }
@@ -164,6 +166,12 @@ impl Handler<serial::AckMessage> for Commander {
                     tracing::warn!(?msg_id, "tried to ack command, listener dropped");
                 }
             },
+            // relays are ignored in favor of the inner ant message
+            None if matches!(msg.0.as_ref().header.header.ty, message::header::MessageType {
+                event: message::header::Event::CSRelay,
+                disposition: message::header::Disposition::Ack,
+                ..
+            }) => {},
             None => {
                 tracing::warn!(?msg_id, "received ack message for unregistered command");
             },

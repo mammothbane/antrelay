@@ -43,7 +43,7 @@ pub struct AckMessage(pub Message);
 pub struct AntMessage(pub Message);
 
 #[tracing::instrument(skip_all, fields(%msg))]
-fn try_issue_ack<A>(issue: &A, msg: &Message, ctx: &mut A::Context)
+fn try_issue_ack<A>(issue: &A, msg: &Message)
 where
     A: Actor + BrokerIssue,
     A::Context: AsyncContext<A>,
@@ -62,7 +62,7 @@ where
     };
 
     tracing::info!(unique_id = %inner.header.header.unique_id(), response_to = ?unique_id, orig_crc = ?crc, "decoded acked command");
-    issue.issue_sync::<SystemBroker, _>(AckMessage(msg.clone()), ctx);
+    issue.issue_async::<SystemBroker, _>(AckMessage(msg.clone()));
 }
 
 pub struct Serial {
@@ -94,7 +94,7 @@ impl Handler<UpMessage> for Serial {
     type Result = ();
 
     #[tracing::instrument(skip_all, fields(msg = %msg.0))]
-    fn handle(&mut self, msg: UpMessage, ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: UpMessage, _ctx: &mut Self::Context) -> Self::Result {
         use actix_broker::BrokerIssue;
 
         tracing::info!("sending serial command");
@@ -107,14 +107,14 @@ impl Handler<UpMessage> for Serial {
             },
         };
 
-        self.issue_sync::<SystemBroker, _>(raw::UpPacket(result), ctx);
+        self.issue_async::<SystemBroker, _>(raw::UpPacket(result));
     }
 }
 
 impl Handler<raw::DownPacket> for Serial {
     type Result = ();
 
-    fn handle(&mut self, msg: raw::DownPacket, ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: raw::DownPacket, _ctx: &mut Self::Context) -> Self::Result {
         let unpacked = match <Message as PackedStructSlice>::unpack_from_slice(msg.0.as_ref()) {
             Ok(dl) => dl,
             Err(e) => {
@@ -123,7 +123,7 @@ impl Handler<raw::DownPacket> for Serial {
             },
         };
 
-        self.issue_sync::<SystemBroker, _>(DownMessage(unpacked.clone()), ctx);
+        self.issue_async::<SystemBroker, _>(DownMessage(unpacked.clone()));
 
         let inner = unpacked.as_ref();
 
@@ -131,6 +131,6 @@ impl Handler<raw::DownPacket> for Serial {
             tracing::info_span!("serial message decoded", event = ?inner.header.header.ty.event)
                 .entered();
 
-        try_issue_ack(self, &unpacked, ctx);
+        try_issue_ack(self, &unpacked);
     }
 }

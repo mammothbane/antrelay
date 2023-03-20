@@ -70,12 +70,15 @@ fn main() -> std::io::Result<()> {
                     match tokio_serial::SerialStream::open(&ser) {
                         Ok(s) => {
                             let (r, w) = tokio::io::split(s);
-                            Some(((Box::new(r) as Box<dyn tokio::io::AsyncRead + Unpin + 'static>), Box::new(w) as Box<dyn tokio::io::AsyncWrite + Unpin + 'static>))
+                            Some((
+                                Box::new(r) as Box<dyn tokio::io::AsyncRead + Unpin + 'static>,
+                                Box::new(w) as Box<dyn tokio::io::AsyncWrite + Unpin + 'static>,
+                            ))
                         },
                         Err(e) => {
                             tracing::error!(error = %e, "connecting to serial port");
                             None
-                        }
+                        },
                     }
                 })
             }))

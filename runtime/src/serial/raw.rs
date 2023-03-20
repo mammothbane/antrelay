@@ -100,7 +100,8 @@ impl Actor for RawIO {
                             ctx.stop();
                         }
                         Err(e) => tracing::error!(error = %e),
-                        _ => {},
+                        _ => {
+                        },
                     }
                 }));
 
@@ -127,7 +128,7 @@ impl Actor for RawIO {
                                 },
                             };
 
-                            a.issue_sync::<SystemBroker, _>(pkt, ctx);
+                            a.issue_async::<SystemBroker, _>(pkt);
                         })
                         .finish(),
                 );

@@ -90,6 +90,8 @@ where
 {
     #[tracing::instrument(skip_all)]
     fn restarting(&mut self, ctx: &mut <Self as Actor>::Context) {
+        tracing::warn!("restarting downlink");
+
         ctx.wait(fut::wrap_future(async move {
             tokio::time::sleep(Duration::from_millis(1000)).await;
         }));
