@@ -59,7 +59,7 @@ async fn send_retry(
     base_retry: Duration,
     max_delay: Duration,
     max_count: usize,
-) -> Result<message::Message, serial::Error> {
+) -> Result<crate::serial::Response, serial::Error> {
     // proportion of signal to be jittered, i.e. multiply the signal by a random sample in the range
     // [1 - JITTER_FACTOR, 1 + JITTER_FACTOR]
     const JITTER_FACTOR: f64 = 0.5;
@@ -89,7 +89,7 @@ impl StateMachine {
     fn step(&mut self, event: Event, ctx: &mut Context<Self>) -> Result<(), serial::Error> {
         let mut old_handle = self.running_task.take();
 
-        tracing::debug!("handling event");
+        tracing::info!("state machine event");
         let init_state = self.state;
 
         let mut reset_handle = || {
@@ -119,18 +119,24 @@ impl StateMachine {
 
             (State::PollAnt, Event::FEGarageOpen) => ignore_repeat(),
             (_, Event::FEGarageOpen) => {
-                let fut = fut::wrap_future(send_retry(|| {
-                    Box::pin(async move {
-                        message::command(
-                            &params().await,
-                            Destination::CentralStation,
-                            Event::CSGarageOpen,
-                        )
-                    })
-                }, Duration::from_secs(3), Duration::SECOND, Duration::SECOND * 5, 3))
+                let fut = fut::wrap_future(send_retry(
+                    || {
+                        Box::pin(async move {
+                            message::command(
+                                &params().await,
+                                Destination::CentralStation,
+                                Event::CSGarageOpen,
+                            )
+                        })
+                    },
+                    Duration::from_secs(3),
+                    Duration::SECOND,
+                    Duration::SECOND * 5,
+                    3,
+                ))
                 .map(|result, act: &mut Self, _ctx| {
                     if let Err(e) = result {
-                        tracing::error!(error = %e, "failed to send garage open to central station");
+                        tracing::error!(error = %e, "sending garage open to central station");
                         return;
                     }
 
@@ -147,7 +153,7 @@ impl StateMachine {
                     let msg = message::command(&params().await, Destination::Ant, Event::AntStart);
 
                     if let Err(e) = send(msg, Some(Duration::SECOND * 20)).await {
-                        tracing::error!(error = %e, "sending rover stop");
+                        tracing::error!(error = %e, "sending ant start");
                     }
                 });
 
@@ -158,7 +164,7 @@ impl StateMachine {
             (State::PollAnt, Event::FERoverMove) => ignore_repeat(),
             (_, Event::FERoverMove) => {
                 let fut = fut::wrap_future(async move {
-                    send_retry(
+                    if let Err(e) = send_retry(
                         || {
                             Box::pin(async move {
                                 message::command(&params().await, Destination::Ant, Event::AntStop)
@@ -170,7 +176,9 @@ impl StateMachine {
                         3,
                     )
                     .await
-                    .expect("help");
+                    {
+                        tracing::error!(error = %e, "sending ant stop");
+                    }
                 });
 
                 self.running_task = Some(ctx.spawn(fut));
@@ -218,7 +226,9 @@ impl StateMachine {
         }
 
         if self.state != init_state {
-            tracing::info!("state transition: {:?} -> {:?}", init_state, self.state);
+            tracing::info!(new_state = ?self.state, "state machine transition");
+        } else {
+            tracing::info!("state machine did not transition");
         }
 
         Ok(())
@@ -247,7 +257,7 @@ impl Handler<ground::UpCommand> for StateMachine {
 
     #[tracing::instrument(skip_all, fields(msg = %msg.0))]
     fn handle(&mut self, msg: ground::UpCommand, ctx: &mut Self::Context) -> Self::Result {
-        let event = msg.0.as_ref().header.header.ty.event;
+        let event = msg.0.header.header.ty.event;
 
         if let Err(e) = self.step(event, ctx) {
             tracing::error!(error = %e, "advancing state machine");

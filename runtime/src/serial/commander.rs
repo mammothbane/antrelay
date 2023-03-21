@@ -1,6 +1,16 @@
 use std::time::Duration;
 
-use actix::prelude::*;
+use actix::{
+    Actor,
+    AsyncContext,
+    Context,
+    Handler,
+    MailboxError,
+    Message,
+    ResponseFuture,
+    Supervised,
+    SystemService,
+};
 use actix_broker::{
     BrokerIssue,
     BrokerSubscribe,
@@ -16,15 +26,23 @@ use message::{
 
 use crate::{
     serial,
+    serial::AntMessage,
     OverrideRegistry,
 };
 
 #[derive(Debug, Clone, PartialEq, Message)]
-#[rtype(result = "Option<message::Message>")]
+#[rtype(result = "()")]
+pub enum Response {
+    Message(message::Message),
+    Ant(message::AntPacket),
+}
+
+#[derive(Debug, Clone, PartialEq, Message)]
+#[rtype(result = "Option<Response>")]
 pub struct Request(pub message::Message);
 
 pub struct Commander {
-    requests: fnv::FnvHashMap<UniqueId, oneshot::Sender<message::Message>>,
+    requests: fnv::FnvHashMap<UniqueId, oneshot::Sender<Response>>,
     once:     std::sync::Once,
 }
 
@@ -57,7 +75,7 @@ pub async fn send_retry(
     mut message: impl FnMut() -> BoxFuture<'static, message::Message>,
     request_timeout: Duration,
     retry_strategy: impl IntoIterator<Item = Duration>,
-) -> Result<message::Message, Error> {
+) -> Result<Response, Error> {
     tokio_retry::Retry::spawn(retry_strategy, || {
         let message = message();
 
@@ -76,11 +94,8 @@ pub async fn send_retry(
 }
 
 #[inline]
-#[tracing::instrument]
-pub async fn send(
-    message: message::Message,
-    timeout: Option<Duration>,
-) -> Result<message::Message, Error> {
+#[tracing::instrument(fields(%message))]
+pub async fn send(message: message::Message, timeout: Option<Duration>) -> Result<Response, Error> {
     let req = OverrideRegistry::query::<Request, Commander>().await.send(Request(message));
 
     let resp = match timeout {
@@ -89,9 +104,14 @@ pub async fn send(
     };
 
     tracing::debug!("awaiting reply");
-    let resp: message::Message = resp?.ok_or(Error::RequestDropped)?;
+    let resp = resp?.ok_or(Error::RequestDropped)?;
 
-    if resp.as_ref().header.header.ty.invalid {
+    let header = match &resp {
+        Response::Ant(pkt) => pkt.header.header,
+        Response::Message(msg) => msg.header.header,
+    };
+
+    if header.ty.invalid {
         return Err(Error::InvalidAckChecksum);
     }
 
@@ -125,6 +145,7 @@ impl Actor for Commander {
     fn started(&mut self, ctx: &mut Self::Context) {
         self.once.call_once(|| {
             self.subscribe_async::<SystemBroker, serial::AckMessage>(ctx);
+            self.subscribe_async::<SystemBroker, AntMessage>(ctx);
         });
 
         ctx.run_interval(Duration::from_secs(5), |a, _ctx| {
@@ -137,7 +158,7 @@ impl Supervised for Commander {}
 impl SystemService for Commander {}
 
 impl Handler<Request> for Commander {
-    type Result = ResponseFuture<Option<message::Message>>;
+    type Result = ResponseFuture<Option<Response>>;
 
     fn handle(&mut self, msg: Request, _ctx: &mut Self::Context) -> Self::Result {
         let (tx, rx) = oneshot::channel();
@@ -152,29 +173,48 @@ impl Handler<serial::AckMessage> for Commander {
     type Result = ();
 
     fn handle(&mut self, msg: serial::AckMessage, _ctx: &mut Self::Context) -> Self::Result {
-        let msg_id = match msg.0.as_ref().header.payload {
-            SourceInfo::Info(info) => {
-                let header = info.header;
-                header.unique_id()
-            },
-            SourceInfo::Empty => return,
+        // drop relay packets in favor of the inner ant message
+        if matches!(msg.0.header.header.ty, message::header::MessageType {
+            event: message::header::Event::CSRelay,
+            disposition: message::header::Disposition::Ack,
+            ..
+        }) {
+            return;
+        }
+
+        let SourceInfo::Info(info) = msg.0.header.payload else {
+            return;
         };
 
-        match self.requests.remove(&msg_id) {
-            Some(tx) => {
-                if let Err(_msg) = tx.send(msg.0) {
-                    tracing::warn!(?msg_id, "tried to ack command, listener dropped");
-                }
-            },
-            // relays are ignored in favor of the inner ant message
-            None if matches!(msg.0.as_ref().header.header.ty, message::header::MessageType {
-                event: message::header::Event::CSRelay,
-                disposition: message::header::Disposition::Ack,
-                ..
-            }) => {},
-            None => {
-                tracing::warn!(?msg_id, "received ack message for unregistered command");
-            },
+        let msg_id = info.header.unique_id();
+
+        let Some(tx) = self.requests.remove(&msg_id) else {
+            tracing::warn!(?msg_id, "received ack message for unregistered command");
+            return
+        };
+
+        if let Err(_msg) = tx.send(Response::Message(msg.0)) {
+            tracing::warn!(?msg_id, "tried to ack command, listener dropped");
+        }
+    }
+}
+
+impl Handler<AntMessage> for Commander {
+    type Result = ();
+
+    fn handle(&mut self, msg: AntMessage, _ctx: &mut Self::Context) -> Self::Result {
+        let SourceInfo::Info(info) = msg.0.header.payload else {
+            return;
+        };
+
+        let msg_id = info.header.unique_id();
+
+        let Some(tx) = self.requests.remove(&info.header.unique_id()) else {
+            return;
+        };
+
+        if let Err(_e) = tx.send(Response::Ant(msg.0)) {
+            tracing::warn!(?msg_id, "got ant ack for valid command whose listener was dropped");
         }
     }
 }

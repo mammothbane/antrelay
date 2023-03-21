@@ -1,3 +1,9 @@
+use std::fmt::{
+    Debug,
+    Display,
+    Formatter,
+};
+
 use bytes::{
     Bytes,
     BytesMut,
@@ -15,16 +21,7 @@ use serde::{
 };
 
 #[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    Hash,
-    PartialOrd,
-    Ord,
-    derive_more::Into,
-    derive_more::AsRef,
-    Default,
+    Clone, PartialEq, Eq, Hash, PartialOrd, Ord, derive_more::Into, derive_more::AsRef, Default,
 )]
 pub struct BytesWrap(Bytes);
 
@@ -79,6 +76,22 @@ impl<'de> Deserialize<'de> for BytesWrap {
         b.extend_from_slice(&v[..]);
 
         Ok(BytesWrap(b.freeze()))
+    }
+}
+
+impl Debug for BytesWrap {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "BytesWrap({self})")
+    }
+}
+
+impl Display for BytesWrap {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        if self.0.is_empty() {
+            write!(f, "<empty>")
+        } else {
+            write!(f, "0x{}", hex::encode(&self.0))
+        }
     }
 }
 

@@ -1,14 +1,7 @@
-use std::{
-    io,
-    time::Duration,
-};
+use std::io;
 
 use actix::prelude::*;
-use actix_broker::{
-    Broker,
-    BrokerIssue,
-    SystemBroker,
-};
+use actix_broker::BrokerIssue;
 use bytes::BytesMut;
 use futures::{
     future::BoxFuture,
@@ -74,6 +67,7 @@ where
 {
     type Result = ();
 
+    #[tracing::instrument(skip_all, fields(ok = item.0.is_ok()))]
     fn handle(&mut self, item: PacketResult, ctx: &mut Self::Context) {
         let pkt = match item.0 {
             Ok(pkt) => pkt,
@@ -84,7 +78,9 @@ where
             },
         };
 
-        tracing::info!(hex = %hex::encode(&*pkt.0), "raw uplink command packet");
+        let _span = tracing::info_span!("uplink packet", pkt = %hex::encode(&pkt.0)).entered();
+
+        tracing::debug!("decoded uplink packet");
         self.issue_system_async(pkt.clone());
 
         let msg = match <message::Message<BytesWrap> as PackedStructSlice>::unpack_from_slice(
@@ -97,8 +93,7 @@ where
             },
         };
 
-        tracing::info!(%msg, "decoded uplink packet");
+        tracing::debug!(%msg, "decoded uplink message");
         self.issue_system_async(ground::UpCommand(msg));
-        tracing::debug!("sent uplink packet");
     }
 }

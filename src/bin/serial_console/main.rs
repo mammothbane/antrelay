@@ -47,12 +47,15 @@ use tokio_util::codec::{
 use message::{
     source_info::Info,
     BytesWrap,
+    CSRelay,
     Header,
     HeaderPacket,
+    HeaderWithSource,
     Message,
     MissionEpoch,
     SourceInfo,
     StandardCRC,
+    Vec3,
 };
 
 mod options;
@@ -187,28 +190,92 @@ async fn main() -> eyre::Result<()> {
             },
 
             Command::SendSpam => {
-                let msg = Message::<_, StandardCRC>::new(HeaderPacket {
-                    header:  HeaderPacket {
-                        header:  Header {
-                            magic:     Default::default(),
-                            timestamp: MissionEpoch::new(0),
-                            ty:        MessageType {
-                                disposition: Disposition::Ack,
-                                event:       Event::AntPing,
-                                invalid:     false,
-                            },
+                use rand::Rng;
 
-                            seq:         0,
-                            destination: Destination::Frontend,
+                fn rand<T>() -> T
+                where
+                    rand::distributions::Standard: rand::distributions::Distribution<T>,
+                {
+                    let mut r = rand::thread_rng();
+                    r.sample(rand::distributions::Standard)
+                }
+
+                fn rand_vec() -> Vec3 {
+                    Vec3 {
+                        x: rand(),
+                        y: rand(),
+                        z: rand(),
+                    }
+                }
+
+                fn rand_relay() -> eyre::Result<Message> {
+                    let relay = CSRelay {
+                        header:  message::cs::Payload {
+                            temperature:  rand(),
+                            power_5v:     rand(),
+                            power_vcc:    rand(),
+                            fram_used:    rand(),
+                            accel:        rand_vec(),
+                            heat_enabled: rand(),
+                            _r0:          rand(),
                         },
-                        payload: SourceInfo::Empty,
-                    },
-                    payload: BytesWrap::default(),
-                });
+                        payload: message::AntPacket {
+                            header:  HeaderWithSource {
+                                header:  Header {
+                                    magic:       Default::default(),
+                                    destination: Destination::Frontend,
+                                    timestamp:   rand::<u32>().into(),
+                                    seq:         rand(),
+                                    ty:          MessageType {
+                                        event:       Event::AntPing,
+                                        disposition: Disposition::Ack,
+                                        invalid:     false,
+                                    },
+                                },
+                                payload: SourceInfo::Empty,
+                            },
+                            payload: message::ant::Payload {
+                                pcb_temp:         rand(),
+                                battery_temp:     rand(),
+                                battery_voltage:  rand(),
+                                fram_usage:       rand(),
+                                gyro:             rand_vec(),
+                                accelerometer:    rand_vec(),
+                                calipile_object:  rand(),
+                                calipile_ambient: rand(),
+                                orientation:      rand(),
+                                steer:            rand(),
+                                _r0:              rand(),
+                                _r1:              rand(),
+                            },
+                        },
+                    };
 
-                let bytes = msg.pack_to_vec()?;
+                    Ok(Message::<_, StandardCRC>::new(
+                        HeaderPacket {
+                            header:  HeaderPacket {
+                                header:  Header {
+                                    magic:     Default::default(),
+                                    timestamp: MissionEpoch::new(0),
+                                    ty:        MessageType {
+                                        disposition: Disposition::Ack,
+                                        event:       Event::CSRelay,
+                                        invalid:     false,
+                                    },
+
+                                    seq:         0,
+                                    destination: Destination::Frontend,
+                                },
+                                payload: SourceInfo::Empty,
+                            },
+                            payload: relay,
+                        }
+                        .payload_into()?,
+                    ))
+                }
 
                 for _ in 0..10 {
+                    let bytes = rand_relay()?.pack_to_vec()?;
                     let mut wr = framed_write.lock().await;
                     wr.send(&bytes).await?;
                 }

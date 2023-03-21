@@ -1,8 +1,8 @@
 use std::sync::Once;
 
 use actix::{
-    prelude::*,
     Actor,
+    AsyncContext,
     Context,
     Handler,
     Supervised,
@@ -26,21 +26,21 @@ pub mod raw;
 
 pub use commander::*;
 
-#[derive(Clone, Debug, PartialEq, Message, derive_more::Into, derive_more::AsRef)]
+#[derive(Clone, Debug, PartialEq, actix::Message, derive_more::Into, derive_more::AsRef)]
 #[rtype(result = "()")]
 pub struct UpMessage(pub Message);
 
-#[derive(Clone, Debug, PartialEq, Message, derive_more::Into, derive_more::AsRef)]
+#[derive(Clone, Debug, PartialEq, actix::Message, derive_more::Into, derive_more::AsRef)]
 #[rtype(result = "()")]
 pub struct DownMessage(pub Message);
 
-#[derive(Clone, Debug, PartialEq, Message, derive_more::Into, derive_more::AsRef)]
+#[derive(Clone, Debug, PartialEq, actix::Message, derive_more::Into, derive_more::AsRef)]
 #[rtype(result = "()")]
 pub struct AckMessage(pub Message);
 
-#[derive(Clone, Debug, PartialEq, Message, derive_more::Into, derive_more::AsRef)]
+#[derive(Clone, Debug, PartialEq, actix::Message, derive_more::Into, derive_more::AsRef)]
 #[rtype(result = "()")]
-pub struct AntMessage(pub Message);
+pub struct AntMessage(pub message::AntPacket);
 
 #[tracing::instrument(skip_all, fields(%msg))]
 fn try_issue_ack<A>(issue: &A, msg: &Message)
@@ -48,9 +48,7 @@ where
     A: Actor + BrokerIssue,
     A::Context: AsyncContext<A>,
 {
-    let inner = msg.as_ref();
-
-    let (unique_id, crc) = match inner.header.payload {
+    let (unique_id, crc) = match msg.header.payload {
         SourceInfo::Info(info) => {
             let header = info.header;
             (header.unique_id(), info.checksum)
@@ -61,7 +59,7 @@ where
         },
     };
 
-    tracing::info!(unique_id = %inner.header.header.unique_id(), response_to = ?unique_id, orig_crc = ?crc, "decoded acked command");
+    tracing::info!(unique_id = %msg.header.header.unique_id(), response_to = ?unique_id, orig_crc = ?crc, "decoded acked command");
     issue.issue_async::<SystemBroker, _>(AckMessage(msg.clone()));
 }
 
@@ -97,9 +95,7 @@ impl Handler<UpMessage> for Serial {
     fn handle(&mut self, msg: UpMessage, _ctx: &mut Self::Context) -> Self::Result {
         use actix_broker::BrokerIssue;
 
-        tracing::info!("sending serial command");
-
-        let result = match msg.0.pack_to_vec() {
+        let packed = match msg.0.pack_to_vec() {
             Ok(v) => BytesMut::from(&v[..]).freeze(),
             Err(e) => {
                 tracing::error!(error = %e, "packing serial uplink message");
@@ -107,13 +103,16 @@ impl Handler<UpMessage> for Serial {
             },
         };
 
-        self.issue_async::<SystemBroker, _>(raw::UpPacket(result));
+        tracing::info!(packed = %hex::encode(&packed), "send serial packet");
+
+        self.issue_async::<SystemBroker, _>(raw::UpPacket(packed));
     }
 }
 
 impl Handler<raw::DownPacket> for Serial {
     type Result = ();
 
+    #[tracing::instrument(skip_all, fields(pkt = %hex::encode(&msg.0)))]
     fn handle(&mut self, msg: raw::DownPacket, _ctx: &mut Self::Context) -> Self::Result {
         let unpacked = match <Message as PackedStructSlice>::unpack_from_slice(msg.0.as_ref()) {
             Ok(dl) => dl,
@@ -122,6 +121,8 @@ impl Handler<raw::DownPacket> for Serial {
                 return;
             },
         };
+
+        tracing::info!(%unpacked, "recv serial packet");
 
         self.issue_async::<SystemBroker, _>(DownMessage(unpacked.clone()));
 

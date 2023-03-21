@@ -15,11 +15,14 @@ pub fn init(pretty: bool) {
     let stderr_layer =
         tracing_subscriber::fmt::layer().with_writer(std::io::stderr).with_target(false);
 
-    let s = cfg_if::cfg_if! {
+    #[allow(clippy::needless_late_init)]
+    let s;
+
+    cfg_if::cfg_if! {
         if #[cfg(all(tokio_unstable, debug_assertions))] {
-            tracing_subscriber::registry().with(console_subscriber::spawn())
+            s = tracing_subscriber::registry().with(console_subscriber::spawn())
         } else {
-            tracing_subscriber::registry()
+            s = tracing_subscriber::registry()
         }
     };
 

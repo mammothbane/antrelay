@@ -26,7 +26,7 @@ lazy_static::lazy_static! {
     serde::Serialize,
     serde::Deserialize,
 )]
-#[packed_struct(bit_numbering = "msb0", size_bytes = "4", endian = "msb")]
+#[packed_struct(bit_numbering = "msb0", size_bytes = "4", endian = "lsb")]
 pub struct MissionEpoch {
     val: u32,
 }

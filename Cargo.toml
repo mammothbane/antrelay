@@ -51,7 +51,8 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 tracing-log = "0.1"
 
 exec = "0.3"
-clearscreen = "2.0"
+
+rand = "0.8"
 
 [profile.release]
 opt-level = "s"

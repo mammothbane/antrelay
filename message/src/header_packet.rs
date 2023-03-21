@@ -1,3 +1,4 @@
+use crate::CSRelay;
 use packed_struct::{
     prelude::*,
     PackedStructInfo,
@@ -111,18 +112,24 @@ impl Display for HeaderPacket<crate::Header, crate::SourceInfo> {
     }
 }
 
-impl Display for HeaderPacket<crate::HeaderWithSource, crate::BytesWrap> {
-    #[inline]
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} / payload: 0x{}", self.header, hex::encode(self.payload.as_ref()))
-    }
-}
-
 impl<T> Display for HeaderPacket<crate::HeaderWithSource, T>
 where
     T: Display,
 {
+    #[inline]
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{} / payload: {}", self.header, self.payload)
+    }
+}
+
+impl Display for CSRelay {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{} / cs: {} / ant: {}",
+            self.payload.header,
+            self.header.display(),
+            self.payload.payload.display()
+        )
     }
 }

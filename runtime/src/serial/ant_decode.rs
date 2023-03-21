@@ -17,12 +17,9 @@ use crate::serial::{
     AntMessage,
     DownMessage,
 };
-use message::{
-    header::{
-        Disposition,
-        Event,
-    },
-    Message,
+use message::header::{
+    Disposition,
+    Event,
 };
 
 pub struct AntDecode {
@@ -53,7 +50,7 @@ impl Handler<DownMessage> for AntDecode {
     type Result = ();
 
     #[tracing::instrument(skip_all, fields(%msg))]
-    fn handle(&mut self, DownMessage(msg): DownMessage, ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, DownMessage(msg): DownMessage, _ctx: &mut Self::Context) -> Self::Result {
         let msg = msg.as_ref();
 
         if !matches!(msg.header.header.ty, message::header::MessageType {
@@ -64,19 +61,21 @@ impl Handler<DownMessage> for AntDecode {
             return;
         }
 
-        let ant_bytes = msg.payload.as_ref().slice(20..);
-
-        let ant_msg = match <Message as PackedStructSlice>::unpack_from_slice(&ant_bytes) {
+        let relay = match <message::CSRelay as PackedStructSlice>::unpack_from_slice(
+            msg.payload.as_ref(),
+        ) {
             Ok(x) => x,
             Err(e) => {
-                tracing::error!(error = %e, data = %hex::encode(msg.payload.as_ref()), "failed to unpack ant message");
+                tracing::error!(error = %e, "failed to unpack ant message");
                 return;
             },
         };
 
-        tracing::info!(%ant_msg, "decoded ant message");
+        let cs = &relay.header;
+        let ant_hdr = &relay.payload.header;
+        let ant = &relay.payload.payload;
 
-        super::try_issue_ack(self, &ant_msg);
-        self.issue_async::<SystemBroker, _>(AntMessage(ant_msg));
+        tracing::info!(cs = %cs.display(), %ant_hdr, ant = %ant.display(), "decoded relay message");
+        self.issue_system_async(AntMessage(relay.payload));
     }
 }

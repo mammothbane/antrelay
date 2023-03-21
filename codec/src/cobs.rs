@@ -36,7 +36,7 @@ where
         let count = cobs::encode(item, &mut dst[old_len..]);
         dst.resize(old_len + count + 1, 0);
 
-        tracing::info!(encoded = %hex::encode(&dst[old_len..]), "cobs-encoded value");
+        tracing::trace!(encoded = %hex::encode(&dst[old_len..]), "cobs-encoded value");
 
         Ok(())
     }
@@ -72,7 +72,7 @@ impl Decoder for CobsCodec {
         let mut result = src.split_to(report.src_used + next_zero);
         result.truncate(report.dst_used);
 
-        tracing::info!(decoded = %hex::encode(&*result), "cobs-decoded value");
+        tracing::trace!(decoded = %hex::encode(&*result), "cobs-decoded value");
 
         Ok(Some(result.freeze()))
     }
