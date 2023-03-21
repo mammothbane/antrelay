@@ -9,10 +9,15 @@ use crate::{
     Message,
 };
 
+pub mod log;
+mod value;
+
+pub use value::Value;
+
 /// All the message types we'll send back over the downlink.
-#[derive(Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum Downlink {
-    Log(String),
+    Log(log::Log),
 
     UplinkMirror(BytesWrap),
     UplinkInterpreted(Message),
@@ -29,7 +34,7 @@ impl Display for Downlink {
         use Downlink::*;
 
         match self {
-            Log(s) => write!(f, "log: {s:?}"),
+            Log(s) => write!(f, "log: {s}"),
 
             UplinkMirror(b) => write!(f, "raw uplink: {b}"),
             UplinkInterpreted(m) => write!(f, "uplink: {m}"),

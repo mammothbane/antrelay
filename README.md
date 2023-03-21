@@ -167,5 +167,4 @@ $ docker run \
 (Plus whatever is required to give us `dialout`/access to the serial port on the host system)
 
 # todo
-- logging for the frontend software
 - integration tests

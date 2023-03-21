@@ -5,7 +5,6 @@ use std::{
 
 use actix::prelude::*;
 use actix_broker::{
-    Broker,
     BrokerSubscribe,
     SystemBroker,
 };
@@ -21,7 +20,6 @@ use message::{
 
 use crate::{
     ground,
-    ground::Log,
     params,
     serial,
     serial::send,
@@ -211,7 +209,7 @@ impl StateMachine {
                 ctx.wait(fut);
             },
             (_, Event::FEPing) => {
-                Broker::<SystemBroker>::issue_async(Log("pong".into()));
+                tracing::info!("pong");
                 reset_handle();
             },
 

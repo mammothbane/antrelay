@@ -18,4 +18,4 @@ pub struct UpCommand(pub message::Message);
 
 #[derive(Clone, Debug, PartialEq, Message, derive_more::Into, derive_more::AsRef)]
 #[rtype(result = "()")]
-pub struct Log(pub String);
+pub struct Log(pub message::downlink::log::Log);

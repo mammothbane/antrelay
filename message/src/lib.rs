@@ -16,7 +16,7 @@ mod bytes_wrap;
 pub mod checksum;
 pub mod crc;
 pub mod cs;
-mod downlink;
+pub mod downlink;
 pub mod header;
 mod header_packet;
 mod magic_value;

@@ -5,7 +5,10 @@
 #![feature(iter_intersperse)]
 #![deny(unsafe_code)]
 
-use std::sync::Arc;
+use std::sync::{
+    atomic::Ordering,
+    Arc,
+};
 
 use actix::{
     Supervisor,
@@ -56,6 +59,8 @@ fn main() -> std::io::Result<()> {
     let sys = System::new();
 
     sys.block_on(async {
+        trace::downlink::ACTIVE.store(true, Ordering::SeqCst);
+
         Supervisor::start(|_ctx| serial::ant_decode::AntDecode::default());
         Supervisor::start(|_ctx| runtime::StateMachine::default());
         Supervisor::start(|_ctx| serial::Serial::default());

@@ -177,7 +177,7 @@ where
         let msg = bincode::deserialize::<Downlink>(&decompressed)?;
 
         let mut line = match msg {
-            Downlink::Log(b) => format!("LOG\n\t{b}").as_bytes().to_vec(),
+            Downlink::Log(b) => format!("LOG ({count})\n\t{b}").as_bytes().to_vec(),
 
             Downlink::SerialDownlinkRaw(b) => bytes_format("SERIAL DOWN (BYTES)", b),
             Downlink::SerialUplinkRaw(b) => bytes_format("SERIAL UP (BYTES)", b),
