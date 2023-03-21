@@ -80,7 +80,7 @@ where
 
         let _span = tracing::info_span!("uplink packet", pkt = %hex::encode(&pkt.0)).entered();
 
-        tracing::debug!("decoded uplink packet");
+        tracing::debug!(limit_downlink = true, "decoded uplink packet");
         self.issue_system_async(pkt.clone());
 
         let msg = match <message::Message<BytesWrap> as PackedStructSlice>::unpack_from_slice(
@@ -93,7 +93,7 @@ where
             },
         };
 
-        tracing::debug!(%msg, "decoded uplink message");
+        tracing::debug!(%msg, limit_downlink = true, "decoded uplink message");
         self.issue_system_async(ground::UpCommand(msg));
     }
 }

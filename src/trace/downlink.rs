@@ -10,6 +10,7 @@ use message::downlink::Value;
 
 use tap::Pipe;
 
+pub const LIMITED_DOWNLINK: &str = "limit_downlink";
 pub const MAX_STR: usize = 64;
 pub static ACTIVE: AtomicBool = AtomicBool::new(false);
 
@@ -45,37 +46,47 @@ where
             return;
         }
 
+        let mut fields = BTreeMap::new();
+
+        let mut visitor = Visitor(&mut fields);
+        event.record(&mut visitor);
+
+        let record_field = fields.get(LIMITED_DOWNLINK).unwrap_or(&Value::Bool(false));
+        let limited_downlink = matches!(record_field, &Value::Bool(true));
+
         let mut spans = vec![];
+
+        let mut record =
+            |mut fields: BTreeMap<String, Value>, name: &str, meta: &tracing::Metadata| {
+                if limited_downlink {
+                    let msg = fields.remove("message");
+                    fields.clear();
+
+                    if let Some(msg) = msg {
+                        fields.insert("message".to_string(), msg);
+                        fields.insert("downlink_filtered".to_string(), Value::Bool(true));
+                    }
+                }
+
+                spans.push(message::downlink::log::SpanData {
+                    target: meta.target().pipe(truncate).to_string(),
+                    name: name.pipe(truncate).to_string(),
+                    level: meta.level().into(),
+                    fields,
+                });
+            };
 
         if let Some(scope) = ctx.event_scope(event) {
             for span in scope.from_root() {
                 let extensions = span.extensions();
                 let storage = extensions.get::<FieldStorage>().unwrap();
 
-                let meta = span.metadata();
-
-                spans.push(message::downlink::log::SpanData {
-                    target: meta.target().pipe(truncate).to_string(),
-                    name:   span.name().pipe(truncate).to_string(),
-                    level:  meta.level().into(),
-                    fields: storage.0.clone(),
-                });
+                record(storage.0.clone(), span.name(), span.metadata());
             }
         }
 
-        let mut fields = BTreeMap::new();
-
-        let mut visitor = Visitor(&mut fields);
-        event.record(&mut visitor);
-
         let meta = event.metadata();
-
-        spans.push(message::downlink::log::SpanData {
-            target: meta.target().pipe(truncate).to_string(),
-            name: meta.name().pipe(truncate).to_string(),
-            level: meta.level().into(),
-            fields,
-        });
+        record(fields, meta.name(), meta);
 
         actix_broker::Broker::<actix_broker::SystemBroker>::issue_async(runtime::ground::Log(
             message::downlink::log::Log(spans),

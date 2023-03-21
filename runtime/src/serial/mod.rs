@@ -103,7 +103,7 @@ impl Handler<UpMessage> for Serial {
             },
         };
 
-        tracing::info!(packed = %hex::encode(&packed), "send serial packet");
+        tracing::info!(packed = %hex::encode(&packed), limit_downlink = true, "send serial packet");
 
         self.issue_async::<SystemBroker, _>(raw::UpPacket(packed));
     }
@@ -122,7 +122,7 @@ impl Handler<raw::DownPacket> for Serial {
             },
         };
 
-        tracing::info!(%unpacked, "recv serial packet");
+        tracing::info!(%unpacked, limit_downlink = true, "recv serial packet");
 
         self.issue_async::<SystemBroker, _>(DownMessage(unpacked.clone()));
 

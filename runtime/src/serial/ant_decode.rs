@@ -75,7 +75,7 @@ impl Handler<DownMessage> for AntDecode {
         let ant_hdr = &relay.payload.header;
         let ant = &relay.payload.payload;
 
-        tracing::info!(cs = %cs.display(), %ant_hdr, ant = %ant.display(), "decoded relay message");
+        tracing::info!(cs = %cs.display(), %ant_hdr, ant = %ant.display(), limit_downlink = true, "decoded relay message");
         self.issue_system_async(AntMessage(relay.payload));
     }
 }

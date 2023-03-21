@@ -144,7 +144,7 @@ impl Handler<UpPacket> for RawIO {
 
     #[tracing::instrument(skip_all, fields(msg = %hex::encode(&*msg.0)))]
     fn handle(&mut self, msg: UpPacket, _ctx: &mut Self::Context) -> Self::Result {
-        tracing::trace!("sending serial packet");
+        tracing::trace!(limit_downlink = true, "sending serial packet");
 
         match self.tx {
             Some(ref tx) => {

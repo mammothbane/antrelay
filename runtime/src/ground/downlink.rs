@@ -109,7 +109,7 @@ fn gen_handle<T>(
 ) {
     let result: Result<Vec<u8>, Error> = try {
         let d: message::Downlink = extract(&msg);
-        tracing::trace!(msg = %d, "downlinking");
+        tracing::trace!(msg = %d, limit_downlink = true, "downlinking");
 
         let encoded = bincode::serialize(&d, ::bincode::Infinite)?;
         let compressed = util::brotli_compress(&encoded)?;
