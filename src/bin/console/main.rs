@@ -1,7 +1,4 @@
-use std::{
-    env,
-    ffi::OsString,
-};
+use std::ffi::OsString;
 
 use async_compat::CompatExt;
 use bytes::Bytes;
@@ -47,6 +44,7 @@ enum Command {
 
     Start,
 
+    #[cfg(not(windows))]
     Reexec,
 
     #[cfg(debug_assertions)]
@@ -56,15 +54,13 @@ enum Command {
 
 /// Hacky way to reset the process if the relay has restarted (and so we need to reacquire the
 /// uplink socket.)
+#[cfg(not(windows))]
 fn exec_self() -> ! {
-    let args = env::args().collect::<Vec<_>>();
+    let args = std::env::args().collect::<Vec<_>>();
 
     // reset the terminal -- it can end up in a weird state
-    #[cfg(unix)]
-    {
-        let mut child = std::process::Command::new("stty").args(["sane"]).spawn().unwrap();
-        child.wait().unwrap();
-    }
+    let mut child = std::process::Command::new("stty").args(["sane"]).spawn().unwrap();
+    child.wait().unwrap();
 
     eprintln!("\nplease retry whatever you just did");
 
@@ -96,6 +92,8 @@ async fn main() -> eyre::Result<()> {
             Ok(()) => return Ok(()),
             Err(e) => {
                 w.write_all(format!("error: {e}\n").as_bytes()).await?;
+
+                #[cfg(unix)]
                 exec_self();
             },
         }
@@ -147,6 +145,7 @@ where
             Command::PingAnt => Event::AntPing,
             Command::PingFrontend => Event::FEPing,
             Command::Start => Event::AntStart,
+            #[cfg(not(windows))]
             Command::Reexec => exec_self(),
             #[cfg(debug_assertions)]
             Command::DebugPing => Event::DebugCSPing,

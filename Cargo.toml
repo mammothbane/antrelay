@@ -51,9 +51,10 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-log = "0.1"
 
-exec = "0.3"
-
 rand = "0.8"
+
+[target.'cfg(not(target_os = "windows"))'.dependencies]
+exec = "0.3"
 
 [profile.release]
 opt-level = "s"
