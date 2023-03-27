@@ -103,7 +103,7 @@ async fn main() -> eyre::Result<()> {
         let framed_write = framed_write.clone();
 
         async move {
-            read_downlink(framed_read, w, framed_write).await.unwrap();
+            read_uplink(framed_read, w, framed_write).await.unwrap();
         }
     });
 
@@ -286,20 +286,20 @@ async fn main() -> eyre::Result<()> {
     }
 }
 
-async fn read_downlink(
-    mut downlink: impl Stream<Item = Result<Bytes, codec::cobs::Error>> + Unpin,
+async fn read_uplink(
+    mut uplink: impl Stream<Item = Result<Bytes, codec::cobs::Error>> + Unpin,
     mut output: impl AsyncWrite + Unpin,
-    uplink: Arc<Mutex<FramedWrite<WriteHalf<SerialStream>, CobsCodec>>>,
+    downlink: Arc<Mutex<FramedWrite<WriteHalf<SerialStream>, CobsCodec>>>,
 ) -> eyre::Result<()> {
     loop {
         output.flush().await?;
 
-        let packet = match downlink.next().await {
+        let packet = match uplink.next().await {
             Some(x) => x?,
             None => return Ok(()),
         };
 
-        let mut message = <Message as PackedStructSlice>::unpack_from_slice(&packet)?;
+        let message = <Message as PackedStructSlice>::unpack_from_slice(&packet)?;
 
         output.write_all(format!("UP PACKET\n\t{}\n", hex::encode(&*packet)).as_bytes()).await?;
         output.write_all(format!("UP MESSAGE\n\t{message}\n").as_bytes()).await?;
@@ -308,17 +308,23 @@ async fn read_downlink(
             continue;
         }
 
-        message.header.payload = SourceInfo::Info(Info {
-            header:   message.header.header,
+        let mut ack_msg = (*message).clone();
+        ack_msg.header.payload = SourceInfo::Info(Info {
+            header:   ack_msg.header.header,
             checksum: message.checksum()?[0],
         });
 
-        message.header.header.ty.disposition = Disposition::Ack;
-        message.payload = BytesWrap::default();
+        ack_msg.header.header.ty.disposition = Disposition::Ack;
+        ack_msg.payload = BytesWrap::default();
 
-        let bytes = message.pack_to_vec()?;
+        let ack_msg = Message::<_, StandardCRC>::new(ack_msg);
 
-        let mut uplink = uplink.lock().await;
-        uplink.send(&bytes).await?;
+        let bytes = ack_msg.pack_to_vec()?;
+
+        output.write_all(format!("DOWN MESSAGE\n\t{message}\n").as_bytes()).await?;
+        output.write_all(format!("DOWN PACKET\n\t{}\n", hex::encode(&bytes)).as_bytes()).await?;
+
+        let mut downlink = downlink.lock().await;
+        downlink.send(&bytes).await?;
     }
 }
