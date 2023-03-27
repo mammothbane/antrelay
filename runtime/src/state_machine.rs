@@ -82,6 +82,14 @@ async fn ping_cs() {
     serial::do_send(msg).await;
 }
 
+async fn rover_stopping() {
+    let msg = message::command(&params().await, Destination::Ant, Event::AntStart);
+
+    if let Err(e) = send(msg, Some(Duration::SECOND * 30)).await {
+        tracing::error!(error = %e, "sending ant start");
+    }
+}
+
 impl StateMachine {
     #[tracing::instrument(skip_all, fields(state = ?self.state, event = ?event))]
     fn step(&mut self, event: Event, ctx: &mut Context<Self>) -> Result<(), serial::Error> {
@@ -103,12 +111,8 @@ impl StateMachine {
         match (init_state, event) {
             (State::PingCentralStation, Event::FEPowerSupplied) => ignore_repeat(),
             (_, Event::FEPowerSupplied) => {
-                let handle = ctx.run_later(Duration::from_secs(5), move |a, ctx| {
-                    let handle = ctx.run_interval(Duration::from_secs(5), move |_a, ctx| {
-                        ctx.spawn(fut::wrap_future(ping_cs()));
-                    });
-
-                    a.running_task = Some(handle);
+                let handle = ctx.run_interval(Duration::from_secs(5), move |_a, ctx| {
+                    ctx.spawn(fut::wrap_future(ping_cs()));
                 });
 
                 self.running_task = Some(handle);
@@ -147,15 +151,17 @@ impl StateMachine {
 
             (State::AntRun, Event::FERoverStop) => ignore_repeat(),
             (_, Event::FERoverStop) => {
-                let fut = fut::wrap_future(async move {
-                    let msg = message::command(&params().await, Destination::Ant, Event::AntStart);
+                let handle = ctx.run_later(Duration::SECOND * 10, |a, ctx| {
+                    ctx.wait(fut::wrap_future(rover_stopping()));
 
-                    if let Err(e) = send(msg, Some(Duration::SECOND * 20)).await {
-                        tracing::error!(error = %e, "sending ant start");
-                    }
+                    let handle = ctx.run_interval(Duration::SECOND * 30, |_a, ctx| {
+                        ctx.wait(fut::wrap_future(rover_stopping()));
+                    });
+
+                    a.running_task = Some(handle);
                 });
 
-                self.running_task = Some(ctx.spawn(fut));
+                self.running_task = Some(handle);
                 self.state = State::AntRun;
             },
 
