@@ -219,7 +219,7 @@ async fn main() -> eyre::Result<()> {
                             heat_enabled: rand(),
                             _r0:          rand(),
                         },
-                        payload: message::AntPacket {
+                        payload: message::AntPacket::new(HeaderPacket {
                             header:  HeaderWithSource {
                                 header:  Header {
                                     magic:       Default::default(),
@@ -248,7 +248,7 @@ async fn main() -> eyre::Result<()> {
                                 _r0:              rand(),
                                 _r1:              rand(),
                             },
-                        },
+                        }),
                     };
 
                     Ok(Message::<_, StandardCRC>::new(
