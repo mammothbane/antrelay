@@ -85,7 +85,7 @@ impl Display for SourceInfo {
             Self::Empty => write!(f, "no source"),
             Self::Info(info) => {
                 let header = info.header;
-                write!(f, "Source <{} crc 0x{:#x}>", header.display(), info.checksum)
+                write!(f, "Source <{} crc {:#x}>", header.display(), info.checksum)
             },
         }
     }
