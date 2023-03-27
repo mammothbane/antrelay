@@ -94,17 +94,18 @@ pub async fn send_retry(
 }
 
 #[inline]
-#[tracing::instrument(fields(%message))]
+#[tracing::instrument(fields(%message), err(Display))]
 pub async fn send(message: message::Message, timeout: Option<Duration>) -> Result<Response, Error> {
     let req = OverrideRegistry::query::<Request, Commander>().await.send(Request(message));
 
+    tracing::debug!("serial message queued, awaiting reply");
     let resp = match timeout {
         Some(dur) => req.timeout(dur).await,
         None => req.await,
     };
 
-    tracing::debug!("awaiting reply");
     let resp = resp?.ok_or(Error::RequestDropped)?;
+    tracing::debug!("reply received");
 
     let header = match &resp {
         Response::Ant(pkt) => pkt.header.header,
@@ -192,6 +193,8 @@ impl Handler<serial::AckMessage> for Commander {
             tracing::warn!(?msg_id, "received ack message for unregistered command");
             return
         };
+
+        tracing::debug!("found listener for message, replying");
 
         if let Err(_msg) = tx.send(Response::Message(msg.0)) {
             tracing::warn!(?msg_id, "tried to ack command, listener dropped");

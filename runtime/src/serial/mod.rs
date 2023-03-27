@@ -59,7 +59,7 @@ where
         },
     };
 
-    tracing::info!(unique_id = %msg.header.header.unique_id(), response_to = ?unique_id, orig_crc = ?crc, "decoded acked command");
+    tracing::info!(unique_id = %msg.header.header.unique_id(), response_to = %unique_id, orig_crc = ?crc, limit_downlink = true, "decoded acked command");
     issue.issue_async::<SystemBroker, _>(AckMessage(msg.clone()));
 }
 

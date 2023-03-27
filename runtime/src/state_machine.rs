@@ -57,7 +57,7 @@ async fn send_retry(
     base_retry: Duration,
     max_delay: Duration,
     max_count: usize,
-) -> Result<crate::serial::Response, serial::Error> {
+) -> Result<serial::Response, serial::Error> {
     // proportion of signal to be jittered, i.e. multiply the signal by a random sample in the range
     // [1 - JITTER_FACTOR, 1 + JITTER_FACTOR]
     const JITTER_FACTOR: f64 = 0.5;
