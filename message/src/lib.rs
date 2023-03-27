@@ -46,7 +46,8 @@ pub type WithCRC<T, CRC = StandardCRC> = crc::WithCRC<T, CRC>;
 pub type Message<T = BytesWrap, CRC = StandardCRC> =
     WithCRC<HeaderPacket<HeaderWithSource, T>, CRC>;
 
-pub type AntPacket = HeaderPacket<HeaderWithSource, ant::Payload>;
+pub type AntPacket<CRC = StandardCRC> =
+    crc::WithCRC<HeaderPacket<HeaderWithSource, ant::Payload>, CRC>;
 pub type CSRelay = HeaderPacket<cs::Payload, AntPacket>;
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
