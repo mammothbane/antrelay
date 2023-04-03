@@ -3,12 +3,11 @@ digraph {
 
     node [shape = box];
 
-    "flight idle" -> "ping repeatedly" [label = " +5v supplied"]
-    "ping repeatedly" -> "start BLE" [label = " garage open pending "]
-    "start BLE" -> "poll ant" [label = " BLE started "]
-    "poll ant" -> "await rover stationary" [label = " ant done flushing "]
-    "await rover stationary" -> "calibrate IMU" [xlabel = " rover stopping "]
-    "calibrate IMU" -> "run ant" [xlabel = " calibration complete "]
-
-    "run ant" -> "await rover stationary" [label = "rover moving"]
+    "flight idle" -> "ping cs" [label = " +5v supplied"]
+    "ping cs" -> "garage open" [label = " garage opening "]
+    "garage open" -> "BLE connected" [xlabel = " BLE connect "]
+    "BLE connected" -> "garage open" [label = "BLE disconnect "]
+    "BLE connected" -> "ant ready" [xlabel = "wait 1m "]
+    "ant ready" -> "ant run" [xlabel = "rover stopping "]
+    "ant run" -> "ant ready" [label = " rover moving "]
 }

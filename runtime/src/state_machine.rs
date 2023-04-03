@@ -30,7 +30,9 @@ use crate::{
 pub enum State {
     FlightIdle,
     PingCentralStation,
-    PollAnt,
+    GarageOpen,
+    BLEConnected,
+    AntReady,
     AntRun,
 }
 
@@ -38,6 +40,7 @@ pub struct StateMachine {
     state:          State,
     running_task:   Option<SpawnHandle>,
     subscribe_once: Once,
+    pending_evt:    Option<Event>,
 }
 
 impl Default for StateMachine {
@@ -46,6 +49,7 @@ impl Default for StateMachine {
             state:          State::FlightIdle,
             running_task:   None,
             subscribe_once: Once::new(),
+            pending_evt:    None,
         }
     }
 }
@@ -82,7 +86,7 @@ async fn ping_cs() {
     serial::do_send(msg).await;
 }
 
-async fn rover_stopping() {
+async fn send_ant_start() {
     let msg = message::command(&params().await, Destination::Ant, Event::AntStart);
 
     if let Err(e) = send(msg, Some(Duration::SECOND * 30)).await {
@@ -119,7 +123,7 @@ impl StateMachine {
                 self.state = State::PingCentralStation;
             },
 
-            (State::PollAnt, Event::FEGarageOpen) => ignore_repeat(),
+            (State::GarageOpen, Event::FEGarageOpen) => ignore_repeat(),
             (_, Event::FEGarageOpen) => {
                 let fut = fut::wrap_future(send_retry(
                     || {
@@ -143,19 +147,41 @@ impl StateMachine {
                     }
 
                     act.running_task = None;
-                    act.state = State::PollAnt;
+                    act.state = State::GarageOpen;
+
+                    tracing::info!("transitioned to garage open state");
                 });
 
                 self.running_task = Some(ctx.spawn(fut));
             },
 
+            (_, Event::CSBLEDisconnect) => self.state = State::GarageOpen,
+
+            (State::BLEConnected, Event::CSBLEConnect) => ignore_repeat(),
+            (_, Event::CSBLEConnect) => {
+                let handle = ctx.run_later(Duration::SECOND * 60, |a, ctx| {
+                    a.state = State::AntReady;
+
+                    let Some(evt) = a.pending_evt.take() else {
+                        return;
+                    };
+
+                    tracing::info!("sending queued rover stop event");
+
+                    ctx.address().do_send(EventWrap(evt));
+                });
+
+                self.state = State::BLEConnected;
+                self.running_task = Some(handle);
+            },
+
             (State::AntRun, Event::FERoverStop) => ignore_repeat(),
-            (_, Event::FERoverStop) => {
+            (State::AntReady, Event::FERoverStop) => {
                 let handle = ctx.run_later(Duration::SECOND * 10, |a, ctx| {
-                    ctx.wait(fut::wrap_future(rover_stopping()));
+                    ctx.wait(fut::wrap_future(send_ant_start()));
 
                     let handle = ctx.run_interval(Duration::SECOND * 30, |_a, ctx| {
-                        ctx.wait(fut::wrap_future(rover_stopping()));
+                        ctx.wait(fut::wrap_future(send_ant_start()));
                     });
 
                     a.running_task = Some(handle);
@@ -165,8 +191,8 @@ impl StateMachine {
                 self.state = State::AntRun;
             },
 
-            (State::PollAnt, Event::FERoverMove) => ignore_repeat(),
-            (_, Event::FERoverMove) => {
+            (State::BLEConnected, Event::FERoverMove) => ignore_repeat(),
+            (State::AntRun, Event::FERoverMove) => {
                 let fut = fut::wrap_future(async move {
                     if let Err(e) = send_retry(
                         || {
@@ -186,7 +212,24 @@ impl StateMachine {
                 });
 
                 self.running_task = Some(ctx.spawn(fut));
-                self.state = State::PollAnt;
+                self.state = State::AntReady;
+            },
+
+            (_, Event::FERoverStop) => {
+                tracing::info!("queueing rover stop for later");
+                self.pending_evt = Some(Event::FERoverStop);
+                reset_handle();
+            },
+            (_, Event::FERoverMove) => {
+                tracing::info!("clearing pending event");
+                self.pending_evt = None;
+                reset_handle();
+            },
+
+            // below: non-state-affecting commands
+            (_, Event::FERestart) => {
+                tracing::warn!("received restart, exiting");
+                std::process::exit(1);
             },
 
             #[cfg(debug_assertions)]
@@ -204,6 +247,7 @@ impl StateMachine {
                 reset_handle();
                 ctx.wait(fut);
             },
+
             (_, Event::AntPing) => {
                 let fut = fut::wrap_future(async move {
                     let msg = message::command(&params().await, Destination::Ant, Event::AntPing);
@@ -214,6 +258,7 @@ impl StateMachine {
                 reset_handle();
                 ctx.wait(fut);
             },
+
             (_, Event::FEPing) => {
                 tracing::info!("pong");
                 reset_handle();
@@ -237,6 +282,13 @@ impl StateMachine {
 
         Ok(())
     }
+
+    #[tracing::instrument(skip_all)]
+    fn do_step(&mut self, event: Event, ctx: &mut Context<Self>) {
+        if let Err(e) = self.step(event, ctx) {
+            tracing::error!(error = %e, "advancing state machine");
+        }
+    }
 }
 
 impl Actor for StateMachine {
@@ -246,6 +298,7 @@ impl Actor for StateMachine {
     fn started(&mut self, ctx: &mut Self::Context) {
         self.subscribe_once.call_once(|| {
             self.subscribe_async::<SystemBroker, ground::UpCommand>(ctx);
+            self.subscribe_async::<SystemBroker, serial::DownMessage>(ctx);
         });
 
         tracing::info!("state machine controller started");
@@ -259,15 +312,58 @@ impl Actor for StateMachine {
 impl Handler<ground::UpCommand> for StateMachine {
     type Result = MessageResult<ground::UpCommand>;
 
-    #[tracing::instrument(skip_all, fields(msg = %msg.0))]
-    fn handle(&mut self, msg: ground::UpCommand, ctx: &mut Self::Context) -> Self::Result {
-        let event = msg.0.header.header.ty.event;
+    #[tracing::instrument(skip_all, fields(%msg))]
+    fn handle(
+        &mut self,
+        ground::UpCommand(msg): ground::UpCommand,
+        ctx: &mut Self::Context,
+    ) -> Self::Result {
+        let hdr = msg.header.header;
+        self.do_step(hdr.ty.event, ctx);
 
-        if let Err(e) = self.step(event, ctx) {
-            tracing::error!(error = %e, "advancing state machine");
+        // forward any messages for the ant or the cs from the ground
+        if matches!(hdr.destination, Destination::Ant | Destination::CentralStation) {
+            ctx.spawn(fut::wrap_future(serial::do_send(msg)));
         }
 
         MessageResult(())
+    }
+}
+
+impl Handler<serial::DownMessage> for StateMachine {
+    type Result = MessageResult<serial::DownMessage>;
+
+    #[inline]
+    #[tracing::instrument(skip_all)]
+    fn handle(
+        &mut self,
+        serial::DownMessage(msg): serial::DownMessage,
+        ctx: &mut Self::Context,
+    ) -> Self::Result {
+        let evt = msg.header.header.ty.event;
+
+        if !matches!(evt, Event::CSBLEConnect | Event::CSBLEDisconnect) {
+            tracing::trace!("state machine ignoring non-BLE event");
+            return MessageResult(());
+        }
+
+        self.do_step(evt, ctx);
+
+        MessageResult(())
+    }
+}
+
+#[derive(Message)]
+#[rtype("()")]
+struct EventWrap(Event);
+
+impl Handler<EventWrap> for StateMachine {
+    type Result = ();
+
+    #[inline]
+    #[tracing::instrument(skip_all)]
+    fn handle(&mut self, EventWrap(event): EventWrap, ctx: &mut Self::Context) -> Self::Result {
+        self.do_step(event, ctx);
     }
 }
 

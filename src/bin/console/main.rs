@@ -50,6 +50,9 @@ enum Command {
     #[cfg(debug_assertions)]
     #[structopt(name = "ping")]
     DebugPing,
+
+    #[cfg(debug_assertions)]
+    Restart,
 }
 
 /// Hacky way to reset the process if the relay has restarted (and so we need to reacquire the
@@ -145,10 +148,15 @@ where
             Command::PingAnt => Event::AntPing,
             Command::PingFrontend => Event::FEPing,
             Command::Start => Event::AntStart,
+
             #[cfg(not(windows))]
             Command::Reexec => exec_self(),
+
             #[cfg(debug_assertions)]
             Command::DebugPing => Event::DebugCSPing,
+
+            #[cfg(debug_assertions)]
+            Command::Restart => Event::FERestart,
         };
 
         let msg = message::command(&runtime::params().await, Destination::Frontend, ty);
