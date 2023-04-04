@@ -157,8 +157,10 @@ async fn main() -> eyre::Result<()> {
 
                 let b: eyre::Result<Bytes> = try {
                     let mut bytes = BytesMut::from(&val[..]);
+
                     CobsCodec
                         .decode_eof(&mut bytes)?
+                        .transpose()?
                         .ok_or(eyre::eyre!("could not read cobs message"))?
                 };
 
@@ -287,7 +289,7 @@ async fn main() -> eyre::Result<()> {
 }
 
 async fn read_uplink(
-    mut uplink: impl Stream<Item = Result<Bytes, codec::cobs::Error>> + Unpin,
+    mut uplink: impl Stream<Item = Result<Result<Bytes, codec::cobs::Error>, std::io::Error>> + Unpin,
     mut output: impl AsyncWrite + Unpin,
     downlink: Arc<Mutex<FramedWrite<WriteHalf<SerialStream>, CobsCodec>>>,
 ) -> eyre::Result<()> {
@@ -295,7 +297,7 @@ async fn read_uplink(
         output.flush().await?;
 
         let packet = match uplink.next().await {
-            Some(x) => x?,
+            Some(x) => x??,
             None => return Ok(()),
         };
 

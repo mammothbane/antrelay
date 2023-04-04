@@ -1,3 +1,8 @@
+use std::{
+    sync::Once,
+    time::Duration,
+};
+
 use actix::{
     fut,
     fut::{
@@ -20,10 +25,7 @@ use futures::{
     future::BoxFuture,
     SinkExt,
     StreamExt,
-};
-use std::{
-    sync::Once,
-    time::Duration,
+    TryStreamExt,
 };
 use tokio::{
     io::{
@@ -113,7 +115,9 @@ impl Actor for RawIO {
                 let framed_downlink = FramedRead::new(r, CobsCodec);
 
                 ctx.spawn(
-                    fut::wrap_stream(framed_downlink.map(|x| x.map(DownPacket)))
+                    fut::wrap_stream(framed_downlink
+                        .map(|x| x.unwrap())
+                        .map_ok(DownPacket))
                         .map(|x, a: &mut Self, ctx| {
                             let pkt = match x {
                                 Ok(pkt) => pkt,

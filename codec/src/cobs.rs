@@ -43,8 +43,8 @@ where
 }
 
 impl Decoder for CobsCodec {
-    type Error = Error;
-    type Item = Bytes;
+    type Error = std::io::Error;
+    type Item = Result<Bytes, Error>;
 
     #[tracing::instrument(skip_all, fields(src = %hex::encode(&*src)), err(Display))]
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
@@ -59,7 +59,7 @@ impl Decoder for CobsCodec {
                     src.advance(pos + 1);
                 }
 
-                return Err(Error::CobsProtocol);
+                return Ok(Some(Err(Error::CobsProtocol)));
             },
         };
 
@@ -74,7 +74,7 @@ impl Decoder for CobsCodec {
 
         tracing::trace!(decoded = %hex::encode(&*result), "cobs-decoded value");
 
-        Ok(Some(result.freeze()))
+        Ok(Some(Ok(result.freeze())))
     }
 
     fn decode_eof(&mut self, buf: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
