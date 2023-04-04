@@ -134,11 +134,9 @@ fn gen_handle<T>(
         })
         .map(|result, _a, ctx: &mut Context<Downlink>| {
             if let Err(e) = result {
-                tracing::error!(error = %e, "sending packet to downlink");
+                tracing::error!(error = %e, "failed sending packet to downlink, reconnecting");
 
-                if e.kind() == io::ErrorKind::NotConnected {
-                    ctx.stop();
-                }
+                ctx.stop();
             }
         }),
     );
