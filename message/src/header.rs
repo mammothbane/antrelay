@@ -196,6 +196,7 @@ pub enum Event {
     FEPowerSupplied = 0x24,
     FEPing          = 0x25,
     FERestart       = 0x26,
+    FECSPowerCycled = 0x27,
 
     #[cfg(debug_assertions)]
     DebugCSPing     = 0x2f,
