@@ -88,6 +88,8 @@ impl Decoder for CobsCodec {
 
 #[cfg(test)]
 mod test {
+    use std::assert_matches::assert_matches;
+
     use super::*;
     use std::time::Duration;
 
@@ -135,9 +137,9 @@ mod test {
         let input = vec![1, 1];
         let reader = FramedRead::new(&input[..], CobsCodec);
 
-        let mut result = reader.collect::<Vec<Result<Bytes, _>>>().await;
+        let mut result = reader.collect::<Vec<Result<Result<Bytes, _>, _>>>().await;
 
-        let first = result.pop().unwrap()?;
+        let first = result.pop().unwrap()??;
         assert_eq!(&[0], first.as_ref());
 
         Ok(())
@@ -148,13 +150,13 @@ mod test {
         let input = vec![1, 1, 0, 1, 1, 0, 0, 0, 0, 1, 4, 1, 2, 3];
         let reader = FramedRead::new(&input[..], CobsCodec);
 
-        let result = reader.collect::<Vec<Result<Bytes, _>>>().await;
+        let result = reader.collect::<Vec<Result<Result<Bytes, _>, _>>>().await;
         let expect: Vec<Vec<u8>> = vec![vec![0], vec![0], vec![], vec![], vec![], vec![0, 1, 2, 3]];
 
         assert_eq!(expect.len(), result.len());
 
         for (expect, result) in expect.into_iter().zip(result) {
-            assert_eq!(&expect, result?.as_ref());
+            assert_eq!(&expect, result??.as_ref());
         }
 
         Ok(())
@@ -173,19 +175,18 @@ mod test {
 
         // but once terminated, it does
         w.write_all(&[0]).await?;
-        let read = reader.next().await.unwrap()?;
+        let read = reader.next().await.unwrap()??;
         assert_eq!(&[0], read.as_ref());
 
         // empty messages are possible
         w.write_all(&[0]).await?;
-        let read = reader.next().await.unwrap()?;
+        let read = reader.next().await.unwrap()??;
         assert_eq!(&[] as &[u8], read.as_ref());
 
         // invalid string errors
         w.write_all(&[3, 0]).await?;
         let read = reader.next().await.unwrap();
-        assert!(read.is_err());
-        assert!(reader.next().await.is_none());
+        assert_matches!(read, Ok(Err(_)));
 
         // partial after already decoding doesn't complete
         w.write_all(&[1, 1]).await?;
@@ -199,7 +200,7 @@ mod test {
 
         // but eventually resolve
         w.write_all(&[0]).await?;
-        let read = reader.next().await.unwrap()?;
+        let read = reader.next().await.unwrap()??;
         assert_eq!(&[0, 0, 1, 0], read.as_ref());
 
         // EOF reads none
@@ -224,7 +225,7 @@ mod test {
                 let read_task = tokio::spawn(async move {
                     let reader = reader;
 
-                    reader.collect::<Vec<Result<Bytes, _>>>().await
+                    reader.collect::<Vec<Result<Result<Bytes, _>, _>>>().await
                 });
 
                 futures::stream::iter(to_encode.clone())
@@ -233,11 +234,11 @@ mod test {
                     .await
                     .unwrap();
 
-                let content: Vec<Result<Bytes, _>> = read_task.await?;
+                let content: Vec<Result<Result<Bytes, _>, _>> = read_task.await?;
                 assert_eq!(to_encode.len(), content.len());
 
                 for (expect, actual) in to_encode.into_iter().zip(content) {
-                    assert_eq!(expect, actual?);
+                    assert_eq!(expect, actual??);
                 }
 
                 Ok(()) as eyre::Result<()>

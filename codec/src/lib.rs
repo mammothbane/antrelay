@@ -1,4 +1,5 @@
 #![feature(never_type)]
+#![feature(assert_matches)]
 
 pub use ::nonempty;
 pub use ::tokio_util::codec as tokio_codec;
