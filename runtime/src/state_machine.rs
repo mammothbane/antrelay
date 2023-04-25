@@ -191,7 +191,6 @@ impl StateMachine {
                 self.state = State::AntRun;
             },
 
-            (State::BLEConnected, Event::FERoverMove) => ignore_repeat(),
             (State::AntRun, Event::FERoverMove) => {
                 let fut = fut::wrap_future(async move {
                     if let Err(e) = send_retry(
