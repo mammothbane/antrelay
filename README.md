@@ -84,6 +84,27 @@ eb9000000000002300000000000000000085
 
 Output as of 2/2023 is included above and is expected to be stable.
 
+Additional output including direct ant control messages (*not to be sent by rover on mission*):
+
+```console
+# ...
+hex-encoding of selected binary ant control messages
+ant start
+eb92000000000002000000000000000000ca
+
+ant stop
+eb92000000000005000000000000000000d5
+
+ant forward (test only)
+eb920000000000090000000000000000003b
+
+ant backward (test only)
+eb9200000000000a00000000000000000083
+
+ant ping
+eb9200000000000100000000000000000072
+```
+
 For clarity, we expect to receive these messages as binary packets over the uplink socket (not
 textual hex). You can convert the messages to binary files as follows:
 
