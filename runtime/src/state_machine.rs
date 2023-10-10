@@ -353,7 +353,7 @@ impl Handler<serial::DownMessage> for StateMachine {
 }
 
 #[derive(Message)]
-#[rtype("()")]
+#[rtype(result = "()")]
 struct EventWrap(Event);
 
 impl Handler<EventWrap> for StateMachine {
