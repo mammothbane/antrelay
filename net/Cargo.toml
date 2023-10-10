@@ -5,7 +5,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-tokio = { version = "1.20", features = ["net", "sync"] }
+tokio = { version = "1.33", features = ["net", "sync"] }
 async-trait = "0.1"
 tracing = "0.1"
 lazy_static = "1.4"
