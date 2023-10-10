@@ -70,9 +70,7 @@ fn main() -> std::io::Result<()> {
                 let port = options.serial_port.clone();
 
                 Box::pin(async move {
-                    let ser = tokio_serial::new(&port, options.baud);
-
-                    match tokio_serial::SerialStream::open(&ser) {
+                    match tokio::fs::File::open(&port).await {
                         Ok(s) => {
                             let (r, w) = tokio::io::split(s);
                             Some((
